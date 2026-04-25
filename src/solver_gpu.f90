@@ -15,42 +15,65 @@ module mod_solver_gpu
   use mod_common_cudecomp, only: dtype_rp => cudecomp_real_rp, &
                                  cudecomp_is_t_in_place, &
                                  solver_buf_0,solver_buf_1, &
+                                 gemm_buf_x,gemm_buf_y, &
                                  pz_aux_1,work, &
                                  ap_x   => ap_x_poi, &
                                  ap_y   => ap_y_poi, &
                                  ap_z   => ap_z_poi, &
                                  ap_x_0 => ap_x    , &
+                                 ap_y_0 => ap_y    , &
                                  ap_z_0 => ap_z    , &
                                  ch => handle,gd => gd_poi, gd_io => gd_poi_io, &
-                                 istream => istream_acc_queue_1_comm_lib
+                                 istream => istream_acc_queue_1_comm_lib, &
+                                 gh => gemm_handle
   use mod_fft            , only: fft_gpu
   use mod_param          , only: ipencil_axis,is_poisson_pcr_tdma, &
                                  is_use_diezdecomp,is_diezdecomp_x2z_z2x_transposes
+#if !defined(_USE_HIP)
+#if !defined(_SINGLE_PRECISION)
+  use cublas         , only: gemm => cublasDgemm_v2, &
+#else
+  use cublas         , only: gemm => cublasSgemm_v2, &
+#endif
+                             op_n => CUBLAS_OP_N
+#else
+#if !defined(_SINGLE_PRECISION)
+  use hipfort_hipblas, only: gemm => hipblasDgemm_v2, & ! will need fixing, Dgemm_v2 is not in hipfort
+#else
+  use hipfort_hipblas, only: gemm => hipblasSgemm_v2, & ! will need fixing, Dgemm_v2 is not in hipfort
+#endif
+                             op_n => HIPBLAS_OP_N
+#endif
   use mod_types
   implicit none
   private
   public solver_gpu,solver_gaussel_z_gpu
   contains
-  subroutine solver_gpu(n,ng,arrplan,normfft,lambdaxy,a,b,c,bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
+  subroutine solver_gpu(n,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
+                        bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
     implicit none
     integer , intent(in), dimension(3) :: n,ng
+    logical , intent(in), dimension(2) :: is_fft
 #if !defined(_USE_HIP)
     integer    , intent(in), dimension(2,2) :: arrplan
 #else
     type(C_PTR), intent(in), dimension(2,2) :: arrplan
 #endif
     real(rp), intent(in) :: normfft
-    real(rp), intent(in), dimension(:,:) :: lambdaxy
+    real(rp), intent(in), dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp), intent(in), dimension(:) :: a,b,c
     character(len=1), dimension(0:1,3), intent(in) :: bc
     character(len=1), intent(in), dimension(3) :: c_or_f
     real(rp), intent(inout), dimension(0:,0:,0:) :: p
     logical , intent(inout), target, optional :: is_ptdma_update
     real(rp), intent(inout), dimension(:,:,:), optional :: aa_z,cc_z
-    real(rp), pointer, contiguous, dimension(:,:,:) :: px,py,pz,pfft_tmp_x,pfft_tmp_y
+    real(rp), pointer, contiguous, dimension(:,:,:) :: px,py,pz
+    real(rp), pointer, contiguous, dimension(:,:,:) :: px_1,px_2,py_1,py_2
+    real(rp), pointer, contiguous, dimension(:,:,:) :: pfft_tmp_x,pfft_tmp_y
     integer :: i,j,k,q
     logical :: is_periodic_z
     integer, dimension(3) :: n_x,n_y,n_z,n_z_0,lo_z_0,hi_z_0,pad_io
+    integer :: n_y_1,n_y_2,n_y_3
     type(cudecompPencilInfo) :: ap_io
     integer :: istat
     logical :: is_ptdma_update_
@@ -67,16 +90,31 @@ module mod_solver_gpu
     n_x(:) = ap_x%shape(:)
     n_y(:) = ap_y%shape(:)
     n_z(:) = ap_z%shape(:)
+    n_y_1 = ap_y_0%shape(1); n_y_2 = ap_y_0%shape(2); n_y_3 = ap_y_0%shape(3)
     if(is_poisson_pcr_tdma) then
       n_z(:) = n_z_0(:) ! equal to the (unpadded) ap_y%shape(:) under initmpi.f90
     end if
-    px(1:n_x(1),1:n_x(2),1:n_x(3)) => solver_buf_0(1:product(n_x(:)))
-    if(cudecomp_is_t_in_place) then
-      py(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_0(1:product(n_y(:)))
+    px(  1:n_x(1),1:n_x(2),1:n_x(3)) => solver_buf_0(1:product(n_x(:)))
+    px_1(1:n_x(1),1:n_x(2),1:n_x(3)) => solver_buf_0(1:product(n_x(:)))
+    px_2(1:n_x(1),1:n_x(2),1:n_x(3)) => solver_buf_0(1:product(n_x(:)))
+    if(cudecomp_is_t_in_place.and.is_fft(2)) then ! no in-place allowed with gemm along y
+      py(  1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_0(1:product(n_y(:)))
+      py_1(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_0(1:product(n_y(:)))
+      py_2(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_0(1:product(n_y(:)))
     else
-      py(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+      py(  1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+      py_1(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+      py_2(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
     end if
     pz(1:n_z(1),1:n_z(2),1:n_z(3)) => solver_buf_0(1:product(n_z(:)))
+    if(.not.is_fft(1)) then
+      px_1(1:n_x(1),1:n_x(2),1:n_x(3)) => solver_buf_0(1:product(n_x(:)))
+      px_2(1:n_x(1),1:n_x(2),1:n_x(3)) => gemm_buf_x(  1:product(n_x(:)))
+    end if
+    if(.not.is_fft(2)) then
+      py_1(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+      py_2(1:n_y(1),1:n_y(2),1:n_y(3)) => gemm_buf_y(  1:product(n_y(:)))
+    end if
     pfft_tmp_x(1:n_x(1),1:n_x(2),1:n_x(3)) => work(1:product(n_x(:)))
     pfft_tmp_y(1:n_y(1),1:n_y(2),1:n_y(3)) => work(1:product(n_y(:)))
     !
@@ -136,17 +174,37 @@ module mod_solver_gpu
       end if
     end select
     !
-    call fft_gpu('F',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(1,1),px,pfft_tmp_x)
+    if(is_fft(1)) then
+      call fft_gpu('F',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(1,1),px,pfft_tmp_x)
+    else
+      !$acc host_data use_device(eigvecx_fwd,px_1,px_2)
+      istat = gemm(gh,op_n,op_n,ng(1),n_x(2)*n_x(3),ng(1),1._rp, &
+                   eigvecx_fwd,ng(1),px_1,ng(1),0._rp,px_2,ng(1))
+      !$acc end host_data
+    end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(px,py,work)
+    !$acc host_data use_device(px,py,px_2,py_2,work)
 #endif
-    istat = cudecompTransposeXtoY(ch,gd,px,py,work,dtype_rp,stream=istream)
+    if(all(is_fft(:))) then
+      istat = cudecompTransposeXtoY(ch,gd,px  ,py  ,work,dtype_rp,stream=istream)
+    else if(is_fft(1)) then
+      istat = cudecompTransposeXtoY(ch,gd,px  ,py_2,work,dtype_rp,stream=istream)
+    else
+      istat = cudecompTransposeXtoY(ch,gd,px_2,py_2,work,dtype_rp,stream=istream)
+    end if
 #if !defined(_USE_DIEZDECOMP)
     !$acc end host_data
 #endif
     !
-    call fft_gpu('F',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(1,2),py,pfft_tmp_y)
+    if(is_fft(2)) then
+      call fft_gpu('F',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(1,2),py,pfft_tmp_y)
+    else
+      !$acc host_data use_device(eigvecy_fwd,py_2,py_1)
+      istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
+                   eigvecy_fwd,ng(2),py_2,ng(2),0._rp,py_1,ng(2))
+      !$acc end host_data
+    end if
     !
     q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.hi_z_0(3) == ng(3))
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
@@ -169,59 +227,64 @@ module mod_solver_gpu
       !$acc end host_data
 #endif
     else
-      block
-        use mod_common_cudecomp, only: ap_y
-        integer :: n_y_1,n_y_2,n_y_3
-        !
-        ! transpose py -> pz with non-axis-contiguous layout
-        !
-        n_y_3 = ap_y%shape(3)
-        n_y_2 = ap_y%shape(2)
-        n_y_1 = ap_y%shape(1)
-        !$acc parallel loop collapse(3) default(present) async(1)
-        do k=1,n_y_3
-          do j=1,n_y_2
-            do i=1,n_y_1
-              pz(i,j,k) = py(j,k,i)
-            end do
+      !
+      ! transpose py -> pz with non-axis-contiguous layout
+      !
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n_y_3
+        do j=1,n_y_2
+          do i=1,n_y_1
+            pz(i,j,k) = py(j,k,i)
           end do
         end do
-      end block
+      end do
       !
       call gaussel_ptdma_gpu(n_z_0(1),n_z_0(2),n_z_0(3)-q,lo_z_0(3),0,a,b,c,is_periodic_z,norm,pz,work,pz_aux_1,is_ptdma_update_,lambdaxy,aa_z,cc_z)
       if(present(is_ptdma_update)) is_ptdma_update = is_ptdma_update_
       !
-      block
-        use mod_common_cudecomp, only: ap_y
-        integer :: n_y_1,n_y_2,n_y_3
-        !
-        ! transpose pz -> py with axis-contiguous layout
-        !
-        n_y_3 = ap_y%shape(3)
-        n_y_2 = ap_y%shape(2)
-        n_y_1 = ap_y%shape(1)
-        !$acc parallel loop collapse(3) default(present) async(1)
-        do k=1,n_y_3
-          do j=1,n_y_2
-            do i=1,n_y_1
-              py(j,k,i) = pz(i,j,k)
-            end do
+      ! transpose pz -> py with axis-contiguous layout
+      !
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n_y_3
+        do j=1,n_y_2
+          do i=1,n_y_1
+            py(j,k,i) = pz(i,j,k)
           end do
         end do
-      end block
+      end do
     end if
     !
-    call fft_gpu('B',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(2,2),py,pfft_tmp_y)
+    if(is_fft(2)) then
+      call fft_gpu('B',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(2,2),py,pfft_tmp_y)
+    else
+      !$acc host_data use_device(eigvecy_bwd,py_1,py_2)
+      istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
+                   eigvecy_bwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
+      !$acc end host_data
+    end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(py,px,work)
+    !$acc host_data use_device(py,px,py_2,px_2,work)
 #endif
-    istat = cudecompTransposeYtoX(ch,gd,py,px,work,dtype_rp,stream=istream)
+    if(all(is_fft(:))) then
+      istat = cudecompTransposeYtoX(ch,gd,py  ,px  ,work,dtype_rp,stream=istream)
+    else if(is_fft(2)) then
+      istat = cudecompTransposeYtoX(ch,gd,py  ,px_2,work,dtype_rp,stream=istream)
+    else
+      istat = cudecompTransposeYtoX(ch,gd,py_2,px_2,work,dtype_rp,stream=istream)
+    end if
 #if !defined(_USE_DIEZDECOMP)
     !$acc end host_data
 #endif
     !
-    call fft_gpu('B',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(2,1),px,pfft_tmp_x)
+    if(is_fft(1)) then
+      call fft_gpu('B',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(2,1),px,pfft_tmp_x)
+    else
+      !$acc host_data use_device(eigvecx_bwd,px_1,px_2)
+      istat = gemm(gh,op_n,op_n,ng(1),n_x(2)*n_x(3),ng(1),1._rp, &
+                   eigvecx_bwd,ng(1),px_2,ng(1),0._rp,px_1,ng(1))
+      !$acc end host_data
+    end if
     !
     select case(ipencil_axis)
     case(1)

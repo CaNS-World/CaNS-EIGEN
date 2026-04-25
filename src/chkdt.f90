@@ -13,30 +13,25 @@ module mod_chkdt
   private
   public chkdt
   contains
-  subroutine chkdt(n,dl,dzci,dzfi,visc,alpha,u,v,w,dtmax)
+  subroutine chkdt(n,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,alpha,u,v,w,dtmax)
     !
     ! computes maximum allowed time step
     !
     implicit none
     integer , intent(in), dimension(3) :: n
-    real(rp), intent(in), dimension(3) :: dl
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc,alpha
     real(rp), intent(in), dimension(0:,0:,0:) :: u,v,w
     real(rp), intent(out) :: dtmax
-    real(rp) :: dxi,dyi,dzi
     real(rp) :: ux,uy,uz,vx,vy,vz,wx,wy,wz
     real(rp) :: dtix,dtiy,dtiz,dti
     integer :: i,j,k
     real(rp), save :: dlmin
     logical , save :: is_first = .true.
     !
-    dxi = 1./dl(1)
-    dyi = 1./dl(2)
-    dzi = 1./dl(3)
     if(is_first) then ! calculate dlmin only once
       is_first = .false.
-      dlmin = minval(dl(1:2))
+      dlmin = min(minval(1./dxfi),minval(1./dyfi))
       if(.not.is_impdiff_1d) then
         dlmin = min(dlmin,minval(1./dzfi))
       end if
@@ -53,15 +48,15 @@ module mod_chkdt
           ux = abs(u(i,j,k))
           vx = 0.25*abs( v(i,j,k)+v(i,j-1,k)+v(i+1,j,k)+v(i+1,j-1,k) )
           wx = 0.25*abs( w(i,j,k)+w(i,j,k-1)+w(i+1,j,k)+w(i+1,j,k-1) )
-          dtix = ux*dxi+vx*dyi+wx*dzfi(k)
+          dtix = ux*dxci(i)+vx*dyfi(j)+wx*dzfi(k)
           uy = 0.25*abs( u(i,j,k)+u(i,j+1,k)+u(i-1,j+1,k)+u(i-1,j,k) )
           vy = abs(v(i,j,k))
           wy = 0.25*abs( w(i,j,k)+w(i,j+1,k)+w(i,j+1,k-1)+w(i,j,k-1) )
-          dtiy = uy*dxi+vy*dyi+wy*dzfi(k)
+          dtiy = uy*dxfi(i)+vy*dyci(j)+wy*dzfi(k)
           uz = 0.25*abs( u(i,j,k)+u(i-1,j,k)+u(i-1,j,k+1)+u(i,j,k+1) )
           vz = 0.25*abs( v(i,j,k)+v(i,j-1,k)+v(i,j-1,k+1)+v(i,j,k+1) )
           wz = abs(w(i,j,k))
-          dtiz = uz*dxi+vz*dyi+wz*dzci(k)
+          dtiz = uz*dxfi(i)+vz*dyfi(j)+wz*dzci(k)
           dti = max(dti,dtix,dtiy,dtiz)
         end do
       end do

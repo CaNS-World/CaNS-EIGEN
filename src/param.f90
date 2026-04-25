@@ -31,8 +31,8 @@ real(rp), parameter, dimension(3)   :: rkcoeff12 = rkcoeff(1,:)+rkcoeff(2,:)
 !
 integer , protected, dimension(3) :: ng
 real(rp), protected, dimension(3) :: l
-integer , protected :: gtype
-real(rp), protected :: gr
+integer , protected, dimension(3) :: gtype
+real(rp), protected, dimension(3) :: gr
 real(rp), protected :: cfl,dtmax,dt_f
 real(rp), protected :: visci
 !
@@ -100,6 +100,7 @@ logical, protected :: is_debug = .true., is_debug_poisson = .false., &
 !
 logical, protected :: is_impdiff = .false., is_impdiff_1d = .false., &
                       is_poisson_pcr_tdma = .false., &
+                      is_poisson_fft(2) = [.true.,.true.], &
                       is_fast_mom_kernels = .true., &
                       is_gridpoint_natural_channel = .false.
 !
@@ -157,6 +158,7 @@ contains
     namelist /numerics/ &
                        is_impdiff,is_impdiff_1d, &
                        is_poisson_pcr_tdma, &
+                       is_poisson_fft, &
                        is_gridpoint_natural_channel
     namelist /other_options/ &
                             is_debug,is_debug_poisson, &

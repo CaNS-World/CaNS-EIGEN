@@ -19,7 +19,8 @@ program gen_xdmf
 !          'XXX_fld_YYYYYYY.bin'
 !          where XXX is the name of the field set in param.h90 and 
 !          YYYYYYY the field 'number'
-!        - the cans output grid file 'grid.bin' must be located
+!        - the cans output grid files 'grid_x.bin', 'grid_y.bin' and
+!          'grid_z.bin' must be located
 !          in the same folder as the xdmf file
 !        - output files are located in same folder as xdmf file
 !

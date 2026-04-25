@@ -31,22 +31,21 @@ module mod_scal
 #else
     integer    , dimension(2,2) :: arrplan
 #endif
-    real(rp), allocatable, dimension(:,:) :: lambdaxy
+    real(rp), allocatable, dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp), allocatable, dimension(:) :: a,b,c
     real(rp) :: normfft
     type(rhs_bound) :: rhsb
   end type scalar
   !
   contains
-  subroutine scal(nx,ny,nz,dxi,dyi,dzci,dzfi,visc,u,v,w,s,dsdt,dsdtd)
+  subroutine scal(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,s,dsdt,dsdtd)
     use mod_param, only: is_impdiff,is_impdiff_1d
     !
     ! computes convective and diffusive fluxes
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in) :: u,v,w,s
     real(rp), dimension(:,:,:), intent(out) :: dsdt
@@ -70,18 +69,18 @@ module mod_scal
           vsjp  = 0.5*( s(i,j+1,k)+s(i,j,k) )*v(i,j  ,k)
           wskm  = 0.5*( s(i,j,k-1)+s(i,j,k) )*w(i,j,k-1)
           wskp  = 0.5*( s(i,j,k+1)+s(i,j,k) )*w(i,j,k  )
-          dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxi
-          dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxi
-          dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyi
-          dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyi
+          dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxci(i  )
+          dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxci(i-1)
+          dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyci(j  )
+          dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyci(j-1)
           dsdzp = (s(i,j,k+1)-s(i,j,k  ))*dzci(k  )
           dsdzm = (s(i,j,k  )-s(i,j,k-1))*dzci(k-1)
           !
-          dsdt(i,j,k) = dxi*(     -usip + usim ) + &
-                        dyi*(     -vsjp + vsjm ) + &
+          dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
+                        dyfi(j)*( -vsjp + vsjm ) + &
                         dzfi(k)*( -wskp + wskm )
-          dsdtd_xy = (dsdxp-dsdxm)*visc*dxi + &
-                     (dsdyp-dsdym)*visc*dyi
+          dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
+                     (dsdyp-dsdym)*visc*dyfi(j)
           dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
           if(is_impdiff) then
             if(is_impdiff_1d) then
@@ -111,17 +110,17 @@ module mod_scal
             vsjp  = 0.5*( s(i,j+1,k)+s(i,j,k) )*v(i,j  ,k)
             wskm  = 0.5*( s(i,j,k-1)+s(i,j,k) )*w(i,j,k-1)
             wskp  = 0.5*( s(i,j,k+1)+s(i,j,k) )*w(i,j,k  )
-            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxi
-            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxi
-            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyi
-            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyi
+            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxci(i  )
+            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxci(i-1)
+            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyci(j  )
+            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyci(j-1)
             dsdzp = (s(i,j,k+1)-s(i,j,k  ))*dzci(k  )
             dsdzm = (s(i,j,k  )-s(i,j,k-1))*dzci(k-1)
-            dsdt(i,j,k) = dxi*(    -usip + usim ) + &
-                          dyi*(    -vsjp + vsjm ) + &
+            dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
+                          dyfi(j)*( -vsjp + vsjm ) + &
                           dzfi(k)*( -wskp + wskm )
-            dsdtd_xy = (dsdxp-dsdxm)*visc*dxi + &
-                       (dsdyp-dsdym)*visc*dyi
+            dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
+                       (dsdyp-dsdym)*visc*dyfi(j)
             dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
             dsdt(i,j,k) = dsdt(i,j,k) + dsdtd_xy + dsdtd_z
           end do
@@ -141,17 +140,17 @@ module mod_scal
             vsjp  = 0.5*( s(i,j+1,k)+s(i,j,k) )*v(i,j  ,k)
             wskm  = 0.5*( s(i,j,k-1)+s(i,j,k) )*w(i,j,k-1)
             wskp  = 0.5*( s(i,j,k+1)+s(i,j,k) )*w(i,j,k  )
-            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxi
-            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxi
-            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyi
-            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyi
+            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxci(i  )
+            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxci(i-1)
+            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyci(j  )
+            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyci(j-1)
             dsdzp = (s(i,j,k+1)-s(i,j,k  ))*dzci(k  )
             dsdzm = (s(i,j,k  )-s(i,j,k-1))*dzci(k-1)
-            dsdt(i,j,k) = dxi*(    -usip + usim ) + &
-                          dyi*(    -vsjp + vsjm ) + &
+            dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
+                          dyfi(j)*( -vsjp + vsjm ) + &
                           dzfi(k)*( -wskp + wskm )
-            dsdtd_xy = (dsdxp-dsdxm)*visc*dxi + &
-                       (dsdyp-dsdym)*visc*dyi
+            dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
+                       (dsdyp-dsdym)*visc*dyfi(j)
             dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
             dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_xy
             dsdtd(i,j,k) = dsdtd_z
@@ -172,17 +171,17 @@ module mod_scal
             vsjp  = 0.5*( s(i,j+1,k)+s(i,j,k) )*v(i,j  ,k)
             wskm  = 0.5*( s(i,j,k-1)+s(i,j,k) )*w(i,j,k-1)
             wskp  = 0.5*( s(i,j,k+1)+s(i,j,k) )*w(i,j,k  )
-            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxi
-            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxi
-            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyi
-            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyi
+            dsdxp = (s(i+1,j,k)-s(i  ,j,k))*dxci(i  )
+            dsdxm = (s(i  ,j,k)-s(i-1,j,k))*dxci(i-1)
+            dsdyp = (s(i,j+1,k)-s(i,j  ,k))*dyci(j  )
+            dsdym = (s(i,j  ,k)-s(i,j-1,k))*dyci(j-1)
             dsdzp = (s(i,j,k+1)-s(i,j,k  ))*dzci(k  )
             dsdzm = (s(i,j,k  )-s(i,j,k-1))*dzci(k-1)
-            dsdt(i,j,k) = dxi*(    -usip + usim ) + &
-                          dyi*(    -vsjp + vsjm ) + &
+            dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
+                          dyfi(j)*( -vsjp + vsjm ) + &
                           dzfi(k)*( -wskp + wskm )
-            dsdtd_xy = (dsdxp-dsdxm)*visc*dxi + &
-                       (dsdyp-dsdym)*visc*dyi
+            dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
+                       (dsdyp-dsdym)*visc*dyfi(j)
             dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
             dsdtd(i,j,k) = dsdtd_xy + dsdtd_z
           end do
@@ -192,14 +191,14 @@ module mod_scal
 #endif
   end subroutine scal
   !
-  subroutine cmpt_scalflux(n,is_bound,l,dli,dzci,dzfi,alpha,s,flux)
+  subroutine cmpt_scalflux(n,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,s,flux)
     use mpi
     use mod_param, only: cbcpre ! it is fine to use the pressure BC to check for periodicity
     implicit none
     integer , intent(in ), dimension(3) :: n
     logical , intent(in ), dimension(0:1,3) :: is_bound
-    real(rp), intent(in ), dimension(3)     :: l,dli
-    real(rp), intent(in ), dimension(0:)    :: dzci,dzfi
+    real(rp), intent(in ), dimension(3)     :: l
+    real(rp), intent(in ), dimension(0:)    :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in )                   :: alpha
     real(rp), intent(in ), dimension(0:,0:,0:) :: s
     real(rp), intent(out), dimension(0:1,1:3) :: flux
@@ -208,10 +207,9 @@ module mod_scal
     integer :: ierr
     !
     integer :: i,j,k,nx,ny,nz
-    real(rp) :: dxi,dyi,lx,ly,lz
+    real(rp) :: lx,ly,lz
     !
     nx = n(1); ny = n(2); nz = n(3)
-    dxi = dli(1); dyi = dli(2)
     lx = l(1); ly = l(2); lz = l(3)
     flux_xp = 0.
     flux_xm = 0.
@@ -221,8 +219,8 @@ module mod_scal
       !$OMP PARALLEL DO   COLLAPSE(2) DEFAULT(shared ) private(dsdxp) reduction(+:flux_xp)
       do k=1,nz
         do j=1,ny
-          dsdxp   = (s(1 ,j,k)-s(0   ,j,k))*dxi*alpha
-          flux_xp = flux_xp + dsdxp/(dyi*dzfi(k)*ly*lz)
+          dsdxp   = (s(1 ,j,k)-s(0   ,j,k))*dxci(0)*alpha
+          flux_xp = flux_xp + dsdxp/(dyfi(j)*dzfi(k)*ly*lz)
         end do
       end do
     end if
@@ -231,8 +229,8 @@ module mod_scal
       !$OMP PARALLEL DO   collapse(2) default(shared ) private(dsdxm) reduction(+:flux_xm)
       do k=1,nz
         do j=1,ny
-          dsdxm   = (s(nx,j,k)-s(nx+1,j,k))*dxi*alpha
-          flux_xm = flux_xm + dsdxm/(dyi*dzfi(k)*ly*lz)
+          dsdxm   = (s(nx,j,k)-s(nx+1,j,k))*dxci(nx)*alpha
+          flux_xm = flux_xm + dsdxm/(dyfi(j)*dzfi(k)*ly*lz)
         end do
       end do
     end if
@@ -245,8 +243,8 @@ module mod_scal
       !$OMP PARALLEL DO   collapse(2) default(shared ) private(dsdyp) reduction(+:flux_yp)
       do k=1,nz
         do i=1,nx
-          dsdyp   = (s(i,1 ,k)-s(i,0   ,k))*dyi*alpha
-          flux_yp = flux_yp + dsdyp/(dxi*dzfi(k)*lx*lz)
+          dsdyp   = (s(i,1 ,k)-s(i,0   ,k))*dyci(0)*alpha
+          flux_yp = flux_yp + dsdyp/(dxfi(i)*dzfi(k)*lx*lz)
         end do
       end do
     end if
@@ -255,8 +253,8 @@ module mod_scal
       !$OMP PARALLEL DO   collapse(2) default(shared ) private(dsdym) reduction(+:flux_ym)
       do k=1,nz
         do i=1,nx
-          dsdym   = (s(i,ny,k)-s(i,ny+1,k))*dyi*alpha
-          flux_ym = flux_ym + dsdym/(dxi*dzfi(k)*lx*lz)
+          dsdym   = (s(i,ny,k)-s(i,ny+1,k))*dyci(ny)*alpha
+          flux_ym = flux_ym + dsdym/(dxfi(i)*dzfi(k)*lx*lz)
         end do
       end do
     end if
@@ -270,7 +268,7 @@ module mod_scal
       do j=1,ny
         do i=1,nx
           dsdzp   = (s(i,j,1 )-s(i,j,0   ))*dzci(0)*alpha
-          flux_zp = flux_zp + dsdzp/(dxi*dyi*lx*ly)
+          flux_zp = flux_zp + dsdzp/(dxfi(i)*dyfi(j)*lx*ly)
         end do
       end do
     end if
@@ -280,7 +278,7 @@ module mod_scal
       do j=1,ny
         do i=1,nx
           dsdzm   = (s(i,j,nz)-s(i,j,nz+1))*dzci(nz)*alpha
-          flux_zm = flux_zm + dsdzm/(dxi*dyi*lx*ly)
+          flux_zm = flux_zm + dsdzm/(dxfi(i)*dyfi(j)*lx*ly)
         end do
       end do
     end if
@@ -318,7 +316,7 @@ module mod_scal
     end if
   end subroutine bulk_forcing_s
   !
-  subroutine initialize_scalars(scalars,nscal,n,n_z)
+  subroutine initialize_scalars(scalars,nscal,ng,n,n_z)
     use mod_param, only: alphai,iniscal,cbcscal,bcscal,ssource,is_sforced,scalf, &
                          is_impdiff
     !
@@ -326,13 +324,15 @@ module mod_scal
     !
     implicit none
     type(scalar), intent(inout), dimension(:) :: scalars
-    integer     , intent(in   ) :: nscal,n(3),n_z(3)
+    integer     , intent(in   ) :: nscal,ng(3),n(3),n_z(3)
     integer :: iscal
     do iscal=1,nscal
       allocate(scalars(iscal)%val(0:n(1)+1,0:n(2)+1,0:n(3)+1))
       allocate(scalars(iscal)%dsdtrko(n(1),n(2),n(3)))
       if(is_impdiff) then
         allocate(scalars(iscal)%lambdaxy(n_z(1),n_z(2)))
+        allocate(scalars(iscal)%eigvecx_fwd(ng(1),ng(1)),scalars(iscal)%eigvecx_bwd(ng(1),ng(1)), &
+                 scalars(iscal)%eigvecy_fwd(ng(2),ng(2)),scalars(iscal)%eigvecy_bwd(ng(2),ng(2)))
         allocate(scalars(iscal)%a(n_z(3)), &
                  scalars(iscal)%b(n_z(3)), &
                  scalars(iscal)%c(n_z(3)))

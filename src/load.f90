@@ -1033,7 +1033,7 @@ contains
         select case(trim(ext))
         case('.bin')
           file_type = FILETYPE_MPIIO
-        case('.h5','.hdf','.hdf5','.nc')
+        case('.h5','.hdf','.hdf5')
           file_type = FILETYPE_HDF5
         case('.bp')
           file_type = FILETYPE_ADIOS2

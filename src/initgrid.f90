@@ -212,7 +212,7 @@ module mod_initgrid
 #endif
     implicit none
     character(len=*), intent(in) :: datadir,fname
-    integer , intent(in), dimension(3) :: ng
+    integer , intent(in) :: ng
     real(rp), intent(in), dimension(0:) :: zc,zf,dzc,dzf
     integer :: iunit,k
 #if defined(_USE_HDF5)
@@ -222,29 +222,29 @@ module mod_initgrid
 #endif
     !
     open(newunit=iunit,file=trim(datadir)//trim(fname)//'.bin',action='write',form='unformatted',access='stream',status='replace')
-    write(iunit) dzc(1:ng(3)),dzf(1:ng(3)),zc(1:ng(3)),zf(1:ng(3))
+    write(iunit) dzc(1:ng),dzf(1:ng),zc(1:ng),zf(1:ng)
     close(iunit)
     open(newunit=iunit,file=trim(datadir)//trim(fname)//'.out',status='replace')
-    do k=0,ng(3)+1
+    do k=0,ng+1
       write(iunit,*) 0.,zf(k),zc(k),dzf(k),dzc(k)
     end do
     close(iunit)
 #if defined(_USE_HDF5)
     call h5open_f(ierr_h5)
     call h5fcreate_f(trim(datadir)//trim(fname)//'.h5',H5F_ACC_TRUNC_F,file_id,ierr_h5)
-    dims(1) = int(ng(3),HSIZE_T)
+    dims(1) = int(ng,HSIZE_T)
     call h5screate_simple_f(1,dims,space,ierr_h5)
     call h5dcreate_f(file_id,'rc',HDF5_REAL_RP(),space,dset,ierr_h5)
-    call h5dwrite_f(dset,HDF5_REAL_RP(),zc(1:ng(3)),dims,ierr_h5)
+    call h5dwrite_f(dset,HDF5_REAL_RP(),zc(1:ng),dims,ierr_h5)
     call h5dclose_f(dset,ierr_h5)
     call h5dcreate_f(file_id,'rf',HDF5_REAL_RP(),space,dset,ierr_h5)
-    call h5dwrite_f(dset,HDF5_REAL_RP(),zf(1:ng(3)),dims,ierr_h5)
+    call h5dwrite_f(dset,HDF5_REAL_RP(),zf(1:ng),dims,ierr_h5)
     call h5dclose_f(dset,ierr_h5)
     call h5dcreate_f(file_id,'drc',HDF5_REAL_RP(),space,dset,ierr_h5)
-    call h5dwrite_f(dset,HDF5_REAL_RP(),dzc(1:ng(3)),dims,ierr_h5)
+    call h5dwrite_f(dset,HDF5_REAL_RP(),dzc(1:ng),dims,ierr_h5)
     call h5dclose_f(dset,ierr_h5)
     call h5dcreate_f(file_id,'drf',HDF5_REAL_RP(),space,dset,ierr_h5)
-    call h5dwrite_f(dset,HDF5_REAL_RP(),dzf(1:ng(3)),dims,ierr_h5)
+    call h5dwrite_f(dset,HDF5_REAL_RP(),dzf(1:ng),dims,ierr_h5)
     call h5dclose_f(dset,ierr_h5)
     call h5sclose_f(space,ierr_h5)
     call h5fclose_f(file_id,ierr_h5)

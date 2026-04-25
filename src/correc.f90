@@ -10,32 +10,24 @@ module mod_correc
   private
   public correc
   contains
-  subroutine correc(n,dli,dzci,dt,p,u,v,w)
+  subroutine correc(n,dxci,dyci,dzci,dt,p,u,v,w)
     !
     ! corrects the velocity so that it is divergence free
     !
     implicit none
     integer , intent(in), dimension(3) :: n
-    real(rp), intent(in), dimension(3 ) :: dli
-    real(rp), intent(in), dimension(0:) :: dzci
+    real(rp), intent(in), dimension(0:) :: dxci,dyci,dzci
     real(rp), intent(in) :: dt
     real(rp), intent(in   ), dimension(0:,0:,0:) :: p
     real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
-    real(rp) :: factori,factorj
-    !real(rp), dimension(0:n(3)+1) :: factork
     integer :: i,j,k
     !
-    !factor = rkcoeffab(rkiter)*dt
-    !
-    factori = dt*dli(1)
-    factorj = dt*dli(2)
-    !factork = dt*dzci!dli(3)
     !$acc parallel loop collapse(3) default(present) async(1)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
     do k=0,n(3)+1
       do j=0,n(2)+1
         do i=0,n(1)
-          u(i,j,k) = u(i,j,k) - factori*(   p(i+1,j,k)-p(i,j,k))
+          u(i,j,k) = u(i,j,k) - dt*dxci(i)*(p(i+1,j,k)-p(i,j,k))
         end do
       end do
     end do
@@ -44,7 +36,7 @@ module mod_correc
     do k=0,n(3)+1
       do j=0,n(2)
         do i=0,n(1)+1
-          v(i,j,k) = v(i,j,k) - factorj*(   p(i,j+1,k)-p(i,j,k))
+          v(i,j,k) = v(i,j,k) - dt*dyci(j)*(p(i,j+1,k)-p(i,j,k))
         end do
       end do
     end do

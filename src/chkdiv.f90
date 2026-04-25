@@ -12,23 +12,21 @@ module mod_chkdiv
   private
   public chkdiv
   contains
-  subroutine chkdiv(lo,hi,l,dli,dzfi,u,v,w,divtot,divmax)
+  subroutine chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
     !
     ! checks the divergence of the velocity field
     !
     implicit none
     integer , intent(in), dimension(3) :: lo,hi
     real(rp), intent(in), dimension(3) :: l
-    real(rp), intent(in), dimension(3) :: dli
+    real(rp), intent(in), dimension(lo(1)-1:) :: dxfi
+    real(rp), intent(in), dimension(lo(2)-1:) :: dyfi
     real(rp), intent(in), dimension(lo(3)-1:) :: dzfi
     real(rp), intent(in), dimension(lo(1)-1:,lo(2)-1:,lo(3)-1:) :: u,v,w
     real(rp), intent(out) :: divtot,divmax
-    real(rp) :: dxi,dyi,div!,dzi
+    real(rp) :: div
     integer :: i,j,k
-    !
-    dxi = dli(1)
-    dyi = dli(2)
-    !dzi = dli(3)
+
     divtot = 0.
     divmax = 0.
     !$acc data copy(divtot,divmax) async(1)
@@ -38,10 +36,10 @@ module mod_chkdiv
       do j=lo(2),hi(2)
         do i=lo(1),hi(1)
           div = (w(i,j,k)-w(i,j,k-1))*dzfi(k) + &
-                (v(i,j,k)-v(i,j-1,k))*dyi     + &
-                (u(i,j,k)-u(i-1,j,k))*dxi
+                (v(i,j,k)-v(i,j-1,k))*dyfi(j) + &
+                (u(i,j,k)-u(i-1,j,k))*dxfi(i)
           divmax = max(divmax,abs(div))
-          divtot = divtot + abs(div)/(dxi*dyi*dzfi(k)) ! abs(div)*cell_volume
+          divtot = divtot + abs(div)/(dxfi(i)*dyfi(j)*dzfi(k)) ! abs(div)*cell_volume
           !if(abs(div) >= 1.e-12) print*,div,'Large divergence at grid cell: ',i,j,k,div
         end do
       end do

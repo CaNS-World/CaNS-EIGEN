@@ -27,7 +27,6 @@ dtype_saves = np.dtype([                                                   \
                         ('istep', int)   , ('jstep', int), ('kstep', int), \
                         ('time', float)  , ('isave', int)                  \
                        ])
-geofile  = "geometry.out"
 logfile  = input("Name of the log file written by CaNS [log_visu_3d.out]: ") or "log_visu_3d.out"
 gridname = input("Name to be appended to the grid files to prevent overwriting []: ") or ""
 gridfile = "grid"+gridname+'.h5'
@@ -54,28 +53,14 @@ nmax  = np.array([saves['imax' ][0], saves['jmax' ][0], saves['kmax' ][0]])
 nstep = np.array([saves['istep'][0], saves['jstep'][0], saves['kstep'][0]])
 n = ((nmax-nmin)//nstep + 1).astype(int)
 #
-# retrieve some computational parameters
-#
-data = np.loadtxt(geofile, comments = "!", max_rows = 2)
-ng = data[0,:].astype('int')
-l  = data[1,:]
-dl = l/(1.*ng)
-#
 # generate subset grid file for xdmf
 #
-x = np.linspace(r0[0]+dl[0]/2.,r0[0]+l[0]-dl[0]/2.,ng[0])
-y = np.linspace(r0[1]+dl[1]/2.,r0[1]+l[1]-dl[1]/2.,ng[1])
-z = np.linspace(r0[2]+dl[2]/2.,r0[2]+l[2]-dl[2]/2.,ng[2])
-if(os.path.exists('grid.h5')):
-    hf = h5py.File('grid.h5','r')
-    z = np.asarray(hf['rc'])
-    hf.close()
-elif(os.path.exists('grid.bin')):
-    f   = open('grid.bin','rb')
-    grid_z = np.fromfile(f,dtype=my_dtype)
-    f.close()
-    grid_z = np.reshape(grid_z,(ng[2],4),order='F')
-    z = r0[2] + grid_z[:,2]
+with h5py.File('grid_x.h5','r') as hf:
+    x = r0[0] + np.asarray(hf["rc"])
+with h5py.File('grid_y.h5','r') as hf:
+    y = r0[1] + np.asarray(hf["rc"])
+with h5py.File('grid_z.h5','r') as hf:
+    z = r0[2] + np.asarray(hf["rc"])
 if os.path.exists(gridfile): os.remove(gridfile)
 x = x[nmin[0]-1:nmax[0]:nstep[0]].astype(my_dtype)
 y = y[nmin[1]-1:nmax[1]:nstep[1]].astype(my_dtype)

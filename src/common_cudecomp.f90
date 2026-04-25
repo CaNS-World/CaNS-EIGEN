@@ -6,12 +6,18 @@
 ! -
 module mod_common_cudecomp
 #if defined(_OPENACC)
+  use, intrinsic :: iso_c_binding, only: c_ptr
   use mod_types
   !@cuf use cudafor
 #if !defined(_USE_DIEZDECOMP)
   use cudecomp
 #else
   use diezdecomp
+#endif
+#if !defined(_USE_HIP)
+  use cublas
+#else
+  use hipfort_blas
 #endif
   use openacc
   use mod_param, only: cudecomp_is_t_in_place
@@ -34,6 +40,12 @@ module mod_common_cudecomp
   !@cuf attributes(device) :: work_halo_cuda,work_ptdma_cuda
   real(rp), target, allocatable, dimension(:) :: solver_buf_0,solver_buf_1
   real(rp), allocatable, dimension(:,:,:) :: pz_aux_1,pz_aux_2
+  real(rp), target, allocatable, dimension(:) :: gemm_buf_x,gemm_buf_y
   integer(acc_handle_kind) :: istream_acc_queue_1,istream_acc_queue_1_comm_lib
+#if !defined(_USE_HIP)
+  type(cublasHandle) :: gemm_handle
+#else
+  type(c_ptr)        :: gemm_handle
+#endif
 #endif
 end module mod_common_cudecomp

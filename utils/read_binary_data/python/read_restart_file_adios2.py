@@ -11,6 +11,30 @@ def read_restart_file_adios2(filenamei):
     #
     # read checkpoint ADIOS2 file
     #
+    FileReader = getattr(adios2,"FileReader",None)
+    def open_bp(filename):
+        return FileReader(filename) if FileReader else adios2.open(filename,"r")
+    def read_bp5(filename,names):
+        adios = adios2.ADIOS()
+        io = adios.DeclareIO("reader")
+        io.SetEngine("BP5")
+        engine = io.Open(filename,adios2.Mode.Read)
+        engine.BeginStep()
+        available_variables = io.AvailableVariables()
+        data = {}
+        for name in names:
+            var = io.InquireVariable(name)
+            if(var is None):
+                raise KeyError(name)
+            shape = tuple(var.Shape())
+            dtype = np.float32 if var.Type() == "float" else np.float64
+            if("int" in var.Type()): dtype = np.int32
+            arr = np.empty(shape,dtype=dtype)
+            engine.Get(var,arr,adios2.Mode.Sync)
+            data[name] = arr
+        engine.EndStep()
+        engine.Close()
+        return available_variables,data
     def split_prefix(filename):
         root, ext = os.path.splitext(filename)
         if(ext == ".bp"):
@@ -19,20 +43,29 @@ def read_restart_file_adios2(filenamei):
                     return root[:-len(suffix)]
             return root
         return filename
-    FileReader = getattr(adios2,"FileReader",None)
-    if(FileReader):
-        def available(filename):
-            with FileReader(filename) as fh:
-                return fh.available_variables()
-        def read_one(filename,fieldname):
-            with FileReader(filename) as fh:
-                fld = np.transpose(np.asarray(fh.read(fieldname)))
+    def read_one(filename,fieldname):
+        if(FileReader):
+            with open_bp(filename) as fh:
+                data = np.transpose(np.asarray(fh.read(fieldname)))
                 time = float(np.asarray(fh.read("time"))[0])
                 istep = int(np.asarray(fh.read("istep"))[0])
-            return fld, time, istep
-        available_variables = available(filenamei)
-        if(all(fieldname in available_variables for fieldname in ["u","v","w","p"])):
-            with FileReader(filenamei) as fh:
+        else:
+            _, values = read_bp5(filename,[fieldname,"time","istep"])
+            data = np.transpose(values[fieldname])
+            time = float(values["time"][0])
+            istep = int(values["istep"][0])
+        return data, time, istep
+    is_combined = False
+    if(os.path.exists(filenamei)):
+        if(FileReader):
+            with open_bp(filenamei) as fh:
+                available_variables = fh.available_variables()
+        else:
+            available_variables, _ = read_bp5(filenamei,[])
+        is_combined = all(fieldname in available_variables for fieldname in ["u","v","w","p"])
+    if(is_combined):
+        if(FileReader):
+            with open_bp(filenamei) as fh:
                 u = np.transpose(np.asarray(fh.read("u")))
                 v = np.transpose(np.asarray(fh.read("v")))
                 w = np.transpose(np.asarray(fh.read("w")))
@@ -40,60 +73,19 @@ def read_restart_file_adios2(filenamei):
                 time = float(np.asarray(fh.read("time"))[0])
                 istep = int(np.asarray(fh.read("istep"))[0])
         else:
-            prefix = split_prefix(filenamei)
-            u, time, istep = read_one(prefix+"_u.bp","u")
-            v, _   , _     = read_one(prefix+"_v.bp","v")
-            w, _   , _     = read_one(prefix+"_w.bp","w")
-            p, _   , _     = read_one(prefix+"_p.bp","p")
+            _, values = read_bp5(filenamei,["u","v","w","p","time","istep"])
+            u = np.transpose(values["u"])
+            v = np.transpose(values["v"])
+            w = np.transpose(values["w"])
+            p = np.transpose(values["p"])
+            time = float(values["time"][0])
+            istep = int(values["istep"][0])
     else:
-        adios = adios2.ADIOS()
-        io_count = [0]
-        def open_bp(filename):
-            io_count[0] += 1
-            io = adios.DeclareIO("reader_"+str(io_count[0]))
-            io.SetEngine("BP5")
-            engine = io.Open(filename,adios2.Mode.Read)
-            engine.BeginStep()
-            return io,engine
-        def read_bp_var(io,engine,name,dtype=None):
-            var = io.InquireVariable(name)
-            if(var is None):
-                raise KeyError(name)
-            shape = tuple(var.Shape())
-            if(dtype is None):
-                dtype = np.float32 if var.Type() == "float" else np.float64
-                if("int" in var.Type()): dtype = np.int32
-            arr = np.empty(shape,dtype=dtype)
-            engine.Get(var,arr,adios2.Mode.Sync)
-            return arr
-        def read_one(filename,fieldname):
-            io,engine = open_bp(filename)
-            fld = np.transpose(read_bp_var(io,engine,fieldname))
-            time = float(read_bp_var(io,engine,"time")[0])
-            istep = int(read_bp_var(io,engine,"istep",np.int32)[0])
-            engine.EndStep()
-            engine.Close()
-            return fld, time, istep
-        io,engine = open_bp(filenamei)
-        available_variables = io.AvailableVariables()
-        engine.EndStep()
-        engine.Close()
-        if(all(fieldname in available_variables for fieldname in ["u","v","w","p"])):
-            io,engine = open_bp(filenamei)
-            u = np.transpose(read_bp_var(io,engine,"u"))
-            v = np.transpose(read_bp_var(io,engine,"v"))
-            w = np.transpose(read_bp_var(io,engine,"w"))
-            p = np.transpose(read_bp_var(io,engine,"p"))
-            time = float(read_bp_var(io,engine,"time")[0])
-            istep = int(read_bp_var(io,engine,"istep",np.int32)[0])
-            engine.EndStep()
-            engine.Close()
-        else:
-            prefix = split_prefix(filenamei)
-            u, time, istep = read_one(prefix+"_u.bp","u")
-            v, _   , _     = read_one(prefix+"_v.bp","v")
-            w, _   , _     = read_one(prefix+"_w.bp","w")
-            p, _   , _     = read_one(prefix+"_p.bp","p")
+        prefix = split_prefix(filenamei)
+        u, time, istep = read_one(prefix+"_u.bp","u")
+        v, _   , _     = read_one(prefix+"_v.bp","v")
+        w, _   , _     = read_one(prefix+"_w.bp","w")
+        p, _   , _     = read_one(prefix+"_p.bp","p")
     return u, v, w, p, time, istep
 if __name__ == "__main__":
     filenamei = input("Name of the ADIOS2 restart file written by CaNS [fld.bp]: ") or "fld.bp"

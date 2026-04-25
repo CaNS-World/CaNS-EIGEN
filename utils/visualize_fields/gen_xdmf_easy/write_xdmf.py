@@ -60,23 +60,21 @@ n = ((nmax-nmin)//nstep + 1).astype(int)
 #
 data = np.loadtxt(geofile, comments = "!", max_rows = 2)
 ng = data[0,:].astype('int')
-l  = data[1,:]
-dl = l/(1.*ng)
 #
 # generate grid files
 #
-x = np.linspace(r0[0]+dl[0]/2.,r0[0]+l[0]-dl[0]/2.,ng[0])
-y = np.linspace(r0[1]+dl[1]/2.,r0[1]+l[1]-dl[1]/2.,ng[1])
-z = np.linspace(r0[2]+dl[2]/2.,r0[2]+l[2]-dl[2]/2.,ng[2])
 if os.path.exists(xgridfile): os.remove(xgridfile)
 if os.path.exists(ygridfile): os.remove(ygridfile)
 if os.path.exists(zgridfile): os.remove(zgridfile)
-if os.path.exists('grid.bin'):
-    f   = open('grid.bin','rb')
-    grid_z = np.fromfile(f,dtype=my_dtype)
-    f.close()
-    grid_z = np.reshape(grid_z,(ng[2],4),order='F')
-    z = r0[2] + grid_z[:,2]
+grid_x = np.fromfile('grid_x.bin',dtype=my_dtype)
+grid_x = np.reshape(grid_x,(ng[0],4),order='F')
+x = r0[0] + grid_x[:,2]
+grid_y = np.fromfile('grid_y.bin',dtype=my_dtype)
+grid_y = np.reshape(grid_y,(ng[1],4),order='F')
+y = r0[1] + grid_y[:,2]
+grid_z = np.fromfile('grid_z.bin',dtype=my_dtype)
+grid_z = np.reshape(grid_z,(ng[2],4),order='F')
+z = r0[2] + grid_z[:,2]
 x[nmin[0]-1:nmax[0]:nstep[0]].astype(my_dtype).tofile(xgridfile)
 y[nmin[1]-1:nmax[1]:nstep[1]].astype(my_dtype).tofile(ygridfile)
 z[nmin[2]-1:nmax[2]:nstep[2]].astype(my_dtype).tofile(zgridfile)

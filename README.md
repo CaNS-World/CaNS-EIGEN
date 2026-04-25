@@ -3,22 +3,21 @@
 
 ## Synopsis
 
-**CaNS (Canonical Navier-Stokes)** is a code for massively-parallel numerical simulations of fluid flows. It aims at solving any fluid flow of an incompressible, Newtonian fluid that can benefit from an FFT-based solver for the second-order finite-difference Poisson equation in a 3D Cartesian grid. In two directions the grid is regular and the solver supports the following combination of (homogeneous) boundary conditions:
+**CaNS-EIGEN** is a code for massively-parallel numerical simulations of fluid flows. It aims at solving any fluid flow of an incompressible, Newtonian fluid that can benefit from a direct solver for the second-order finite-difference Poisson equation in a 3D Cartesian grid that may be non-uniform along _all_ directions.
 
- * Neumann-Neumann
- * Dirichlet-Dirichlet
- * Neumann-Dirichlet
- * Periodic
-
-In the third domain direction, the solver is more flexible as it uses Gauss elimination. There the grid can also be non-uniform (e.g. fine at the boundary and coarser in the center).
+This solver extends the FFT-based Poisson solver in CaNS with a tensor-based eigendecomposition method. For non-uniform grids, the one-dimensional operators are diagonalized numerically and the FFTs are replaced by dense eigenprojections, which can be expressed as a single GEMM (General Matrix-Matrix Multiplication) per transformed direction; on uniform grids, this reduces to the classical method of eigenfunction expansions. Since both formulations share the same tensor-product structure, FFT- and GEMM-based transforms can be mixed along the first two domain directions. As in CaNS, in the third domain direction, the solver solves a tridiagonal system using TDMA.
 
 CaNS also allows for choosing an implicit temporal discretization of the momentum diffusion terms, either fully implicit or only along the last domain direction. This results in solving a 3D/1D Helmholtz equation per velocity component. In the fully implicit case, FFT-based solvers are also used, and the same options described above for pressure boundary conditions apply to the velocity.
 
-**Reference**
+**References**
+
+P. Costa, D. Palancha, J. Romero, R. Verzicco, and M. Fatica. *A GEMM-based direct solver for finite-difference Poisson problems in non-uniform grids.* (2026). [[arXiv preprint]](https://arxiv.org/abs/2603.09528)
 
 P. Costa. *A FFT-based finite-difference solver for massively-parallel direct numerical simulations of turbulent flows.* *Computers & Mathematics with Applications* 76: 1853--1862 (2018). [doi:10.1016/j.camwa.2018.07.034](https://doi.org/10.1016/j.camwa.2018.07.034) [[arXiv preprint]](https://arxiv.org/abs/1802.10323)
 
 ## News
+
+### **[25/04/2026]:** `CaNS-EIGEN` is released!
 
 ### _Major Update:_ `CaNS 4.0` _is out!_ :tada:
 See the [Release Notes](https://github.com/CaNS-World/CaNS/releases/tag/v4.0.0) for more details.

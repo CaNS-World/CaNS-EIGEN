@@ -15,24 +15,24 @@ r0 = [0.,0.,0.];    % domain origin
 geofile  = "geometry.out";
 data = dlmread(geofile);
 ng   = data(1,:);
-l    = data(2,:);
-dl   = l./ng;
 %
-% read and generate grid
+% read grid
 %
-xp = linspace(r0(1)+dl(1)/2.,r0(1)+l(1)-dl(1)/2.,ng(1)); % centered  x grid
-yp = linspace(r0(2)+dl(2)/2.,r0(2)+l(2)-dl(2)/2.,ng(2)); % centered  y grid
-zp = linspace(r0(3)+dl(3)/2.,r0(3)+l(3)-dl(3)/2.,ng(3)); % centered  z grid
-xu = xp + dl(1)/2.; % staggered x grid
-yv = yp + dl(2)/2.; % staggered y grid
-zw = zp + dl(3)/2.; % staggered z grid
-if(exist('grid.bin','file'))
-    f   = fopen('grid.bin');
-    grid_z = fread(f,[ng(3),4],precision);
-    fclose(f);
-    zp = r0(3) + grid_z(:,3)'; % centered  z grid
-    zw = r0(3) + grid_z(:,4)'; % staggered z grid
-end
+f   = fopen('grid_x.bin');
+grid_x = fread(f,[ng(1),4],precision);
+fclose(f);
+xp = r0(1) + grid_x(:,3)'; % centered  x grid
+xu = r0(1) + grid_x(:,4)'; % staggered x grid
+f   = fopen('grid_y.bin');
+grid_y = fread(f,[ng(2),4],precision);
+fclose(f);
+yp = r0(2) + grid_y(:,3)'; % centered  y grid
+yv = r0(2) + grid_y(:,4)'; % staggered y grid
+f   = fopen('grid_z.bin');
+grid_z = fread(f,[ng(3),4],precision);
+fclose(f);
+zp = r0(3) + grid_z(:,3)'; % centered  z grid
+zw = r0(3) + grid_z(:,4)'; % staggered z grid
 %
 % read checkpoint binary file
 %

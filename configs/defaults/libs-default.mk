@@ -10,9 +10,9 @@ override LIBS += -L$(LIBS_DIR)/diezDecomp/build/lib -ldiezdecomp
 override INCS += -I$(LIBS_DIR)/diezDecomp/build/include
 endif
 ifneq ($(strip $(USE_HIP)),1)
-override LIBS += -cudalib=cufft
+override LIBS += -cudalib=cufft,cublas -lblas -llapack
 else
-override LIBS += -lhipfft
+override LIBS += -lhipfft -lhipblas -lblas -llapack
 endif
 endif
 
@@ -23,6 +23,12 @@ endif
 
 ifneq ($(strip $(GPU)),1)
 override LIBS += -lfftw3
+
+ifeq ($(findstring INTEL,$(strip $(FCOMP))),INTEL)
+override LIBS += -qmkl
+else
+override LIBS += -lblas -llapack
+endif
 
 ifeq ($(strip $(OPENMP)),1)
 override LIBS += -lfftw3_threads

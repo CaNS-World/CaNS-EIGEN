@@ -5,7 +5,7 @@
 !
 ! -
 module mod_fft
-  use, intrinsic :: iso_c_binding, only: C_INT,c_intptr_t,C_PTR,c_loc,c_null_ptr
+  use, intrinsic :: iso_c_binding, only: C_INT,c_intptr_t,C_PTR,c_loc,c_null_ptr,c_associated
   use mod_common_mpi, only: ierr
   use mod_fftw_param
   use mod_types
@@ -21,10 +21,11 @@ module mod_fft
   real(rp), allocatable, target :: sincos_theta_x(:,:),sincos_theta_y(:,:)
 #endif
   contains
-  subroutine fftini(ng,n_x,n_y,bcxy,c_or_f,arrplan,normfft)
+  subroutine fftini(ng,is_fft,n_x,n_y,bcxy,c_or_f,arrplan,normfft)
     use mod_param, only: pi
     implicit none
     integer , target, intent(in), dimension(3) :: ng,n_x,n_y
+    logical , intent(in), dimension(2) :: is_fft
     character(len=1), intent(in), dimension(0:1,2) :: bcxy
     character(len=1), intent(in), dimension(2) :: c_or_f
 #if !defined(_OPENACC) || defined(_USE_HIP)
@@ -71,137 +72,149 @@ module mod_fft
     ny_y = n_y(2)
     nz_y = n_y(3)
 #endif
+#if !defined(_OPENACC) || defined(_USE_HIP)
+    arrplan(:,:) = C_NULL_PTR
+#else
+    arrplan(:,:) = 0
+#endif
     normfft = 1.
+#if defined(_OPENACC)
+    max_wsize = 0
+#endif
     !
     ! fft in x
     !
-    call find_fft(bcxy(:,1),c_or_f(1),kind_fwd,kind_bwd,norm)
-    ix = 0
-    ! size of transform reduced by 1 point with Dirichlet BC in face
-    if(bcxy(0,1)//bcxy(1,1) == 'DD'.and.c_or_f(1) == 'f') ix = 1
+    if(is_fft(1)) then
+      call find_fft(bcxy(:,1),c_or_f(1),kind_fwd,kind_bwd,norm)
+      ix = 0
+      ! size of transform reduced by 1 point with Dirichlet BC in face
+      if(bcxy(0,1)//bcxy(1,1) == 'DD'.and.c_or_f(1) == 'f') ix = 1
 #if !defined(_OPENACC)
-    !
-    ! prepare plans with guru interface
-    !
-    iodim(1)%n  = nx_x-ix
-    iodim(1)%is = 1
-    iodim(1)%os = 1
-    iodim_howmany(1)%n  = ny_x
-    iodim_howmany(1)%is = nx_x
-    iodim_howmany(1)%os = nx_x
-    iodim_howmany(2)%n  = nz_x
-    iodim_howmany(2)%is = nx_x*ny_x
-    iodim_howmany(2)%os = nx_x*ny_x
-    plan_fwd_x=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arrx,arrx,kind_fwd,FFTW_ESTIMATE)
-    plan_bwd_x=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arrx,arrx,kind_bwd,FFTW_ESTIMATE)
+      !
+      ! prepare plans with guru interface
+      !
+      iodim(1)%n  = nx_x-ix
+      iodim(1)%is = 1
+      iodim(1)%os = 1
+      iodim_howmany(1)%n  = ny_x
+      iodim_howmany(1)%is = nx_x
+      iodim_howmany(1)%os = nx_x
+      iodim_howmany(2)%n  = nz_x
+      iodim_howmany(2)%is = nx_x*ny_x
+      iodim_howmany(2)%os = nx_x*ny_x
+      plan_fwd_x=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arrx,arrx,kind_fwd,FFTW_ESTIMATE)
+      plan_bwd_x=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arrx,arrx,kind_bwd,FFTW_ESTIMATE)
 #else
-    max_wsize = -1
-    !
-    ! store sine/cosine values for real-to-real transforms on GPUs
-    !
-    ! this assumes that all variables have the same number of points along each direction;
-    ! in the future, if real-to-real with (semi-) collocated boundary conditions are implemented
-    ! (e.g., for implicit diffusion on GPUs), we need to initialize arrays for each solved variable
-    ! and store it.
-    !
-    if(bcxy(0,1)//bcxy(1,1) /= 'PP') then
-      if(.not.allocated(sincos_theta_x)) then
-        allocate(sincos_theta_x(0:ng(1)/2,1:2))
-        do ii=0,ng(1)/2
-          theta = pi*ii/(2._rp*ng(1))
-          sincos_theta_x(ii,1) = sin(theta)
-          sincos_theta_x(ii,2) = cos(theta)
-        end do
-        !$acc enter data copyin(sincos_theta_x)
+      !
+      ! store sine/cosine values for real-to-real transforms on GPUs
+      !
+      ! this assumes that all variables have the same number of points along each direction;
+      ! in the future, if real-to-real with (semi-) collocated boundary conditions are implemented
+      ! (e.g., for implicit diffusion on GPUs), we need to initialize arrays for each solved variable
+      ! and store it.
+      !
+      if(bcxy(0,1)//bcxy(1,1) /= 'PP') then
+        if(.not.allocated(sincos_theta_x)) then
+          allocate(sincos_theta_x(0:ng(1)/2,1:2))
+          do ii=0,ng(1)/2
+            theta = pi*ii/(2._rp*ng(1))
+            sincos_theta_x(ii,1) = sin(theta)
+            sincos_theta_x(ii,2) = cos(theta)
+          end do
+          !$acc enter data copyin(sincos_theta_x)
+        end if
       end if
+      batch = product(n_x(2:3)) ! padded & axis-contiguous layout
+      nx_x = n_x(1)             ! padded & axis-contiguous layout
+      istat = cufftCreate(plan_fwd_x)
+      istat = cufftSetAutoAllocation(plan_fwd_x,0)
+#if !defined(_USE_HIP)
+      istat = cufftMakePlanMany(plan_fwd_x,1,ng(1),null(),1,nx_x,null(),1,ng(1)/2+1,CUFFT_FWD_TYPE,batch,wsize)
+#else
+      istat = cufftMakePlanMany(plan_fwd_x,1,c_loc(ng(1)),c_null_ptr,1,nx_x,c_null_ptr,1,ng(1)/2+1,CUFFT_FWD_TYPE,batch,c_loc(wsize))
+#endif
+      max_wsize = max(wsize,max_wsize)
+      !
+      istat = cufftCreate(plan_bwd_x)
+      istat = cufftSetAutoAllocation(plan_bwd_x,0)
+#if !defined(_USE_HIP)
+      istat = cufftMakePlanMany(plan_bwd_x,1,ng(1),null(),1,ng(1)/2+1,null(),1,nx_x,CUFFT_BWD_TYPE,batch,wsize)
+#else
+      istat = cufftMakePlanMany(plan_bwd_x,1,c_loc(ng(1)),c_null_ptr,1,ng(1)/2+1,c_null_ptr,1,nx_x,CUFFT_BWD_TYPE,batch,c_loc(wsize))
+#endif
+      max_wsize = max(wsize,max_wsize)
+#endif
+      normfft = normfft*norm(1)*(ng(1)+norm(2)-ix)
+      arrplan(1,1) = plan_fwd_x
+      arrplan(2,1) = plan_bwd_x
     end if
-    batch = product(n_x(2:3)) ! padded & axis-contiguous layout
-    nx_x = n_x(1)             ! padded & axis-contiguous layout
-    istat = cufftCreate(plan_fwd_x)
-    istat = cufftSetAutoAllocation(plan_fwd_x,0)
-#if !defined(_USE_HIP)
-    istat = cufftMakePlanMany(plan_fwd_x,1,ng(1),null(),1,nx_x,null(),1,ng(1)/2+1,CUFFT_FWD_TYPE,batch,wsize)
-#else
-    istat = cufftMakePlanMany(plan_fwd_x,1,c_loc(ng(1)),c_null_ptr,1,nx_x,c_null_ptr,1,ng(1)/2+1,CUFFT_FWD_TYPE,batch,c_loc(wsize))
-#endif
-    max_wsize = max(wsize,max_wsize)
-    !
-    istat = cufftCreate(plan_bwd_x)
-    istat = cufftSetAutoAllocation(plan_bwd_x,0)
-#if !defined(_USE_HIP)
-    istat = cufftMakePlanMany(plan_bwd_x,1,ng(1),null(),1,ng(1)/2+1,null(),1,nx_x,CUFFT_BWD_TYPE,batch,wsize)
-#else
-    istat = cufftMakePlanMany(plan_bwd_x,1,c_loc(ng(1)),c_null_ptr,1,ng(1)/2+1,c_null_ptr,1,nx_x,CUFFT_BWD_TYPE,batch,c_loc(wsize))
-#endif
-    max_wsize = max(wsize,max_wsize)
-#endif
-    normfft = normfft*norm(1)*(ng(1)+norm(2)-ix)
     !
     ! fft in y
     !
-    call find_fft(bcxy(:,2),c_or_f(2),kind_fwd,kind_bwd,norm)
-    iy = 0
-    ! size of transform reduced by 1 point with Dirichlet BC in face
-    if(bcxy(0,2)//bcxy(1,2) == 'DD'.and.c_or_f(2) == 'f') iy = 1
+    if(is_fft(2)) then
+      call find_fft(bcxy(:,2),c_or_f(2),kind_fwd,kind_bwd,norm)
+      iy = 0
+      ! size of transform reduced by 1 point with Dirichlet BC in face
+      if(bcxy(0,2)//bcxy(1,2) == 'DD'.and.c_or_f(2) == 'f') iy = 1
 #if !defined(_OPENACC)
-    !
-    ! prepare plans with guru interface
-    !
-    iodim(1)%n  = ny_y-iy
-    iodim(1)%is = nx_y
-    iodim(1)%os = nx_y
-    iodim_howmany(1)%n  = nx_y
-    iodim_howmany(1)%is = 1
-    iodim_howmany(1)%os = 1
-    iodim_howmany(2)%n  = nz_y
-    iodim_howmany(2)%is = nx_y*ny_y
-    iodim_howmany(2)%os = nx_y*ny_y
-    plan_fwd_y=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arry,arry,kind_fwd,FFTW_ESTIMATE)
-    plan_bwd_y=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arry,arry,kind_bwd,FFTW_ESTIMATE)
+      !
+      ! prepare plans with guru interface
+      !
+      iodim(1)%n  = ny_y-iy
+      iodim(1)%is = nx_y
+      iodim(1)%os = nx_y
+      iodim_howmany(1)%n  = nx_y
+      iodim_howmany(1)%is = 1
+      iodim_howmany(1)%os = 1
+      iodim_howmany(2)%n  = nz_y
+      iodim_howmany(2)%is = nx_y*ny_y
+      iodim_howmany(2)%os = nx_y*ny_y
+      plan_fwd_y=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arry,arry,kind_fwd,FFTW_ESTIMATE)
+      plan_bwd_y=fftw_plan_guru_r2r(1,iodim,2,iodim_howmany,arry,arry,kind_bwd,FFTW_ESTIMATE)
 #else
-    !
-    ! store sine/cosine values for real-to-real transforms on GPUs
-    !
-    ! see the comment above on prospective extensions of real-to-real transforms for implicit diffusion
-    !
-    if(bcxy(0,2)//bcxy(1,2) /= 'PP') then
-      if(.not.allocated(sincos_theta_y)) then
-        allocate(sincos_theta_y(0:ng(2)/2,1:2))
-        do ii=0,ng(2)/2
-          theta = pi*ii/(2._rp*ng(2))
-          sincos_theta_y(ii,1) = sin(theta)
-          sincos_theta_y(ii,2) = cos(theta)
-        end do
-        !$acc enter data copyin(sincos_theta_y)
+      !
+      ! store sine/cosine values for real-to-real transforms on GPUs
+      !
+      ! see the comment above on prospective extensions of real-to-real transforms for implicit diffusion
+      !
+      if(bcxy(0,2)//bcxy(1,2) /= 'PP') then
+        if(.not.allocated(sincos_theta_y)) then
+          allocate(sincos_theta_y(0:ng(2)/2,1:2))
+          do ii=0,ng(2)/2
+            theta = pi*ii/(2._rp*ng(2))
+            sincos_theta_y(ii,1) = sin(theta)
+            sincos_theta_y(ii,2) = cos(theta)
+          end do
+          !$acc enter data copyin(sincos_theta_y)
+        end if
       end if
+      batch = product(n_y(2:3)) ! padded & axis-contiguous layout
+      ny_y = n_y(1)             ! padded & axis-contiguous layout
+      istat = cufftCreate(plan_fwd_y)
+      istat = cufftSetAutoAllocation(plan_fwd_y,0)
+#if !defined(_USE_HIP)
+      istat = cufftMakePlanMany(plan_fwd_y,1,ng(2),null(),1,ny_y,null(),1,ng(2)/2+1,CUFFT_FWD_TYPE,batch,wsize)
+#else
+      istat = cufftMakePlanMany(plan_fwd_y,1,c_loc(ng(2)),c_null_ptr,1,ny_y,c_null_ptr,1,ng(2)/2+1,CUFFT_FWD_TYPE,batch,c_loc(wsize))
+#endif
+      max_wsize = max(wsize,max_wsize)
+      !
+      istat = cufftCreate(plan_bwd_y)
+      istat = cufftSetAutoAllocation(plan_bwd_y,0)
+#if !defined(_USE_HIP)
+      istat = cufftMakePlanMany(plan_bwd_y,1,ng(2),null(),1,ng(2)/2+1,null(),1,ny_y,CUFFT_BWD_TYPE,batch,wsize)
+#else
+      istat = cufftMakePlanMany(plan_bwd_y,1,c_loc(ng(2)),c_null_ptr,1,ng(2)/2+1,c_null_ptr,1,ny_y,CUFFT_BWD_TYPE,batch,c_loc(wsize))
+#endif
+      max_wsize = max(wsize,max_wsize)
+#endif
+      normfft = normfft*norm(1)*(ng(2)+norm(2)-iy)
+      arrplan(1,2) = plan_fwd_y
+      arrplan(2,2) = plan_bwd_y
     end if
-    batch = product(n_y(2:3)) ! padded & axis-contiguous layout
-    ny_y = n_y(1)             ! padded & axis-contiguous layout
-    istat = cufftCreate(plan_fwd_y)
-    istat = cufftSetAutoAllocation(plan_fwd_y,0)
-#if !defined(_USE_HIP)
-    istat = cufftMakePlanMany(plan_fwd_y,1,ng(2),null(),1,ny_y,null(),1,ng(2)/2+1,CUFFT_FWD_TYPE,batch,wsize)
-#else
-    istat = cufftMakePlanMany(plan_fwd_y,1,c_loc(ng(2)),c_null_ptr,1,ny_y,c_null_ptr,1,ng(2)/2+1,CUFFT_FWD_TYPE,batch,c_loc(wsize))
-#endif
-    max_wsize = max(wsize,max_wsize)
-    !
-    istat = cufftCreate(plan_bwd_y)
-    istat = cufftSetAutoAllocation(plan_bwd_y,0)
-#if !defined(_USE_HIP)
-    istat = cufftMakePlanMany(plan_bwd_y,1,ng(2),null(),1,ng(2)/2+1,null(),1,ny_y,CUFFT_BWD_TYPE,batch,wsize)
-#else
-    istat = cufftMakePlanMany(plan_bwd_y,1,c_loc(ng(2)),c_null_ptr,1,ng(2)/2+1,c_null_ptr,1,ny_y,CUFFT_BWD_TYPE,batch,c_loc(wsize))
-#endif
-    max_wsize = max(wsize,max_wsize)
+#if defined(_OPENACC)
     wsize_fft = max_wsize/f_sizeof(1._rp)
 #endif
-    normfft = normfft*norm(1)*(ng(2)+norm(2)-iy)
-    !
-    arrplan(1,1) = plan_fwd_x
-    arrplan(2,1) = plan_bwd_x
-    arrplan(1,2) = plan_fwd_y
-    arrplan(2,2) = plan_bwd_y
     normfft = normfft**(-1)
   end subroutine fftini
   !
@@ -217,25 +230,28 @@ module mod_fft
     integer :: istat
 #endif
 #if !defined(_OPENACC)
-#if defined(_SINGLE_PRECISION)
     do j=1,size(arrplan,2)
       do i=1,size(arrplan,1)
-        call sfftw_destroy_plan(arrplan(i,j))
+#if defined(_SINGLE_PRECISION)
+        if(c_associated(arrplan(i,j))) call sfftw_destroy_plan(arrplan(i,j))
+#else
+        if(c_associated(arrplan(i,j))) call dfftw_destroy_plan(arrplan(i,j))
+#endif
       end do
     end do
+#if defined(_SINGLE_PRECISION)
     !$ call sfftw_cleanup_threads(ierr)
 #else
-    do j=1,size(arrplan,2)
-      do i=1,size(arrplan,1)
-        call dfftw_destroy_plan(arrplan(i,j))
-      end do
-    end do
     !$ call dfftw_cleanup_threads(ierr)
 #endif
 #else
     do j=1,size(arrplan,2)
       do i=1,size(arrplan,1)
-        istat = cufftDestroy(arrplan(i,j))
+#if !defined(_USE_HIP)
+        if(arrplan(i,j) /= 0)          istat = cufftDestroy(arrplan(i,j))
+#else
+        if(c_associated(arrplan(i,j))) istat = cufftDestroy(arrplan(i,j))
+#endif
       end do
     end do
 #endif

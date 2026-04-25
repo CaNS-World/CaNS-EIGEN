@@ -53,32 +53,34 @@ module mod_output
     if(myid == 0) call execute_command_line('ln -sf '//trim(fname)//' '//trim(datadir)//fname_alias)
   end subroutine gen_alias
   !
-  subroutine out1d(fname,ng,lo,hi,idir,l,dl,z_g,dz,p)
+  subroutine out1d(fname,ng,lo,hi,idir,l,dx,dy,dz,x_g,y_g,z_g,p)
     !
     ! writes the profile of a variable averaged
     ! over two domain directions
     !
-    ! fname -> name of the file
-    ! ng    -> global domain sizes
-    ! lo,hi -> upper and lower extents of the input array
-    ! idir  -> direction of the profile
-    ! dl,l  -> uniform grid spacing and length arrays
-    ! z_g   -> global z coordinate array (grid is non-uniform in z)
-    ! dz    -> local z grid spacing array (should work also with the global one)
-    ! p     -> 3D input scalar field
+    ! fname       -> name of the file
+    ! ng          -> global domain sizes
+    ! lo,hi       -> upper and lower extents of the input array
+    ! idir        -> direction of the profile
+    ! l           -> domain length array
+    ! dx,dy,dz    -> grid spacing arrays
+    ! x_g,y_g,z_g -> global coordinate arrays
+    ! p           -> 3D input scalar field
     !
     implicit none
     character(len=*), intent(in) :: fname
     integer , intent(in), dimension(3) :: ng,lo,hi
     integer , intent(in) :: idir
-    real(rp), intent(in), dimension(3) :: l,dl
-    real(rp), intent(in), dimension(0:       ) :: z_g
+    real(rp), intent(in), dimension(3) :: l
+    real(rp), intent(in), dimension(lo(1)-1:) :: dx
+    real(rp), intent(in), dimension(lo(2)-1:) :: dy
     real(rp), intent(in), dimension(lo(3)-1:) :: dz
+    real(rp), intent(in), dimension(0:      ) :: x_g,y_g,z_g
     real(rp), intent(in), dimension(lo(1)-1:,lo(2)-1:,lo(3)-1:) :: p
     real(rp), allocatable, dimension(:) :: p1d
     integer :: i,j,k
     integer :: iunit
-    real(rp) :: grid_area_ratio,p1d_s
+    real(rp) :: vol,p1d_s
     !
     allocate(p1d(ng(idir)))
     !$acc enter data create(p1d)
@@ -88,17 +90,17 @@ module mod_output
     end do
     select case(idir)
     case(3)
-      grid_area_ratio = dl(1)*dl(2)/(l(1)*l(2))
+      vol = l(1)*l(2)
       !$acc parallel loop gang default(present) private(p1d_s)
       do k=lo(3),hi(3)
         p1d_s = 0._rp
         !$acc loop collapse(2) reduction(+:p1d_s)
         do j=lo(2),hi(2)
           do i=lo(1),hi(1)
-            p1d_s = p1d_s + p(i,j,k)*grid_area_ratio
+            p1d_s = p1d_s + p(i,j,k)*dx(i)*dy(j)
           end do
         end do
-        p1d(k) = p1d_s
+        p1d(k) = p1d_s/vol
       end do
       !$acc exit data copyout(p1d)
       call MPI_ALLREDUCE(MPI_IN_PLACE,p1d(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
@@ -110,46 +112,46 @@ module mod_output
         close(iunit)
       end if
     case(2)
-      grid_area_ratio = dl(1)/(l(1)*l(3))
+      vol = l(1)*l(3)
       !$acc parallel loop gang default(present) private(p1d_s)
       do j=lo(2),hi(2)
         p1d_s = 0._rp
         !$acc loop collapse(2) reduction(+:p1d_s)
         do k=lo(3),hi(3)
           do i=lo(1),hi(1)
-            p1d_s = p1d_s + p(i,j,k)*dz(k)*grid_area_ratio
+            p1d_s = p1d_s + p(i,j,k)*dx(i)*dz(k)
           end do
         end do
-        p1d(j) = p1d_s
+        p1d(j) = p1d_s/vol
       end do
       !$acc exit data copyout(p1d)
       call MPI_ALLREDUCE(MPI_IN_PLACE,p1d(1),ng(2),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       if(myid == 0) then
         open(newunit=iunit,file=fname)
         do j=1,ng(2)
-          write(iunit,fmt_rp) (j-.5)*dl(2),p1d(j)
+          write(iunit,fmt_rp) y_g(j),p1d(j)
         end do
         close(iunit)
       end if
     case(1)
-      grid_area_ratio = dl(2)/(l(2)*l(3))
+      vol = l(2)*l(3)
       !$acc parallel loop gang default(present) private(p1d_s)
       do i=lo(1),hi(1)
         p1d_s = 0._rp
         !$acc loop collapse(2) reduction(+:p1d_s)
         do k=lo(3),hi(3)
           do j=lo(2),hi(2)
-            p1d_s = p1d_s + p(i,j,k)*dz(k)*grid_area_ratio
+            p1d_s = p1d_s + p(i,j,k)*dy(j)*dz(k)
           end do
         end do
-        p1d(i) = p1d_s
+        p1d(i) = p1d_s/vol
       end do
       !$acc exit data copyout(p1d)
       call MPI_ALLREDUCE(MPI_IN_PLACE,p1d(1),ng(1),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       if(myid == 0) then
         open(newunit=iunit,file=fname)
         do i=1,ng(1)
-          write(iunit,fmt_rp) (i-.5)*dl(1),p1d(i)
+          write(iunit,fmt_rp) x_g(i),p1d(i)
         end do
         close(iunit)
       end if
@@ -324,24 +326,27 @@ module mod_output
     call write_visu_subset(datadir,fname_bin,fname_log,varname,ng,nh,lo,hi,lo_out,hi_out,[1,1,1],time,istep,p,x_g,y_g,z_g,is_pack)
   end subroutine write_visu_2d
   !
-  subroutine out1d_chan(fname,ng,lo,hi,idir,l,dl,z_g,u,v,w) ! e.g. for a channel with streamwise dir in x
+  subroutine out1d_chan(fname,ng,lo,hi,idir,l,dx,dy,dz,z_g,u,v,w) ! e.g. for a channel with streamwise dir in x
     implicit none
     character(len=*), intent(in) :: fname
     integer , intent(in), dimension(3) :: ng,lo,hi
     integer , intent(in) :: idir
-    real(rp), intent(in), dimension(3) :: l,dl
+    real(rp), intent(in), dimension(3) :: l
+    real(rp), intent(in), dimension(lo(1)-1:) :: dx
+    real(rp), intent(in), dimension(lo(2)-1:) :: dy
+    real(rp), intent(in), dimension(lo(3)-1:) :: dz
     real(rp), intent(in), dimension(0:) :: z_g
     real(rp), intent(in), dimension(lo(1)-1:,lo(2)-1:,lo(3)-1:) :: u,v,w
     real(rp), allocatable, dimension(:) :: um,vm,wm,u2,v2,w2,uw
     integer :: i,j,k
     integer :: iunit
     integer :: q
-    real(rp) :: grid_area_ratio
+    real(rp) :: vol,vol_cell
     !
     q = ng(idir)
     select case(idir)
     case(3)
-      grid_area_ratio = dl(1)*dl(2)/(l(1)*l(2))
+      vol = l(1)*l(2)
       allocate(um(0:q+1),vm(0:q+1),wm(0:q+1),u2(0:q+1),v2(0:q+1),w2(0:q+1),uw(0:q+1))
       um(:) = 0.
       vm(:) = 0.
@@ -353,17 +358,25 @@ module mod_output
       do k=lo(3),hi(3)
         do j=lo(2),hi(2)
           do i=lo(1),hi(1)
-            um(k) = um(k) + u(i,j,k)
-            vm(k) = vm(k) + v(i,j,k)
-            wm(k) = wm(k) + 0.50*(w(i,j,k-1) + w(i,j,k))
-            u2(k) = u2(k) + u(i,j,k)**2
-            v2(k) = v2(k) + v(i,j,k)**2
-            w2(k) = w2(k) + 0.50*(w(i,j,k)**2+w(i,j,k-1)**2)
+            vol_cell = dx(i)*dy(j)
+            um(k) = um(k) + u(i,j,k)*vol_cell
+            vm(k) = vm(k) + v(i,j,k)*vol_cell
+            wm(k) = wm(k) + 0.50*(w(i,j,k-1) + w(i,j,k))*vol_cell
+            u2(k) = u2(k) + u(i,j,k)**2*vol_cell
+            v2(k) = v2(k) + v(i,j,k)**2*vol_cell
+            w2(k) = w2(k) + 0.50*(w(i,j,k)**2+w(i,j,k-1)**2)*vol_cell
             uw(k) = uw(k) + 0.25*(u(i-1,j,k) + u(i,j,k))* &
-                                 (w(i,j,k-1) + w(i,j,k))
+                                 (w(i,j,k-1) + w(i,j,k))*vol_cell
           end do
         end do
       end do
+      um(:) = um(:)/vol
+      vm(:) = vm(:)/vol
+      wm(:) = wm(:)/vol
+      u2(:) = u2(:)/vol
+      v2(:) = v2(:)/vol
+      w2(:) = w2(:)/vol
+      uw(:) = uw(:)/vol
       call MPI_ALLREDUCE(MPI_IN_PLACE,um(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,vm(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,wm(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
@@ -371,13 +384,10 @@ module mod_output
       call MPI_ALLREDUCE(MPI_IN_PLACE,v2(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,w2(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,uw(1),ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
-      um(:) = um(:)*grid_area_ratio
-      vm(:) = vm(:)*grid_area_ratio
-      wm(:) = wm(:)*grid_area_ratio
-      u2(:) = u2(:)*grid_area_ratio - um(:)**2
-      v2(:) = v2(:)*grid_area_ratio - vm(:)**2
-      w2(:) = w2(:)*grid_area_ratio - wm(:)**2
-      uw(:) = uw(:)*grid_area_ratio - um(:)*wm(:)
+      u2(:) = u2(:) - um(:)**2
+      v2(:) = v2(:) - vm(:)**2
+      w2(:) = w2(:) - wm(:)**2
+      uw(:) = uw(:) - um(:)*wm(:)
       if(myid == 0) then
         open(newunit=iunit,file=fname)
         do k=1,ng(3)
@@ -392,25 +402,28 @@ module mod_output
     end select
   end subroutine out1d_chan
   !
-  subroutine out2d_duct(fname,ng,lo,hi,idir,l,dl,z_g,u,v,w) ! e.g. for a duct
+  subroutine out2d_duct(fname,ng,lo,hi,idir,l,dx,dy,dz,x_g,y_g,z_g,u,v,w) ! e.g. for a duct
     !
     implicit none
     character(len=*), intent(in) :: fname
     integer , intent(in), dimension(3) :: ng,lo,hi
     integer , intent(in) :: idir
-    real(rp), intent(in), dimension(3) :: l,dl
-    real(rp), intent(in), dimension(0:) :: z_g
+    real(rp), intent(in), dimension(3) :: l
+    real(rp), intent(in), dimension(lo(1)-1:) :: dx
+    real(rp), intent(in), dimension(lo(2)-1:) :: dy
+    real(rp), intent(in), dimension(lo(3)-1:) :: dz
+    real(rp), intent(in), dimension(0:) :: x_g,y_g,z_g
     real(rp), intent(in), dimension(lo(1)-1:,lo(2)-1:,lo(3)-1:) :: u,v,w
     real(rp), allocatable, dimension(:,:) :: um,vm,wm,u2,v2,w2,uv,uw,vw
     integer :: i,j,k
     integer :: iunit
     integer :: p,q
-    real(rp) :: x_g,y_g,grid_area_ratio
+    real(rp) :: vol,vol_cell
     !
     select case(idir) ! streamwise direction
     case(3)
     case(2)
-      grid_area_ratio = dl(2)/l(2)
+      vol = l(2)
       p = ng(1)
       q = ng(3)
       allocate(um(p,q),vm(p,q),wm(p,q),u2(p,q),v2(p,q),w2(p,q),uv(p,q),vw(p,q))
@@ -426,19 +439,28 @@ module mod_output
       do k=lo(3),hi(3)
         do i=lo(1),hi(1)
           do j=lo(2),hi(2)
-            um(i,k) = um(i,k) + 0.5*(u(i-1,j,k)+u(i,j,k))
-            vm(i,k) = vm(i,k) + v(i,j,k)
-            wm(i,k) = wm(i,k) + 0.5*(w(i,j,k-1)+w(i,j,k))
-            u2(i,k) = u2(i,k) + 0.5*(u(i-1,j,k)**2+u(i,j,k)**2)
-            v2(i,k) = v2(i,k) + v(i,j,k)**2
-            w2(i,k) = w2(i,k) + 0.5*(w(i,j,k-1)**2+w(i,j,k)**2)
+            vol_cell = dy(j)
+            um(i,k) = um(i,k) + 0.5*(u(i-1,j,k)+u(i,j,k))*vol_cell
+            vm(i,k) = vm(i,k) + v(i,j,k)*vol_cell
+            wm(i,k) = wm(i,k) + 0.5*(w(i,j,k-1)+w(i,j,k))*vol_cell
+            u2(i,k) = u2(i,k) + 0.5*(u(i-1,j,k)**2+u(i,j,k)**2)*vol_cell
+            v2(i,k) = v2(i,k) + v(i,j,k)**2*vol_cell
+            w2(i,k) = w2(i,k) + 0.5*(w(i,j,k-1)**2+w(i,j,k)**2)*vol_cell
             vw(i,k) = vw(i,k) + 0.25*(v(i,j-1,k) + v(i,j,k))* &
-                                     (w(i,j,k-1) + w(i,j,k))
+                                     (w(i,j,k-1) + w(i,j,k))*vol_cell
             uv(i,k) = uv(i,k) + 0.25*(u(i-1,j,k) + u(i,j,k))* &
-                                     (v(i,j-1,k) + v(i,j,k))
+                                     (v(i,j-1,k) + v(i,j,k))*vol_cell
           end do
         end do
       end do
+      um(:,:) = um(:,:)/vol
+      vm(:,:) = vm(:,:)/vol
+      wm(:,:) = wm(:,:)/vol
+      u2(:,:) = u2(:,:)/vol
+      v2(:,:) = v2(:,:)/vol
+      w2(:,:) = w2(:,:)/vol
+      uv(:,:) = uv(:,:)/vol
+      vw(:,:) = vw(:,:)/vol
       call MPI_ALLREDUCE(MPI_IN_PLACE,um(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,vm(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,wm(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
@@ -447,19 +469,15 @@ module mod_output
       call MPI_ALLREDUCE(MPI_IN_PLACE,w2(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,vw(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,uv(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
-      um(:,:) = um(:,:)*grid_area_ratio
-      vm(:,:) = vm(:,:)*grid_area_ratio
-      wm(:,:) = wm(:,:)*grid_area_ratio
-      u2(:,:) = u2(:,:)*grid_area_ratio - um(:,:)**2
-      v2(:,:) = v2(:,:)*grid_area_ratio - vm(:,:)**2
-      w2(:,:) = w2(:,:)*grid_area_ratio - wm(:,:)**2
-      vw(:,:) = vw(:,:)*grid_area_ratio - vm(:,:)*wm(:,:)
-      uv(:,:) = uv(:,:)*grid_area_ratio - um(:,:)*vm(:,:)
+      u2(:,:) = u2(:,:) - um(:,:)**2
+      v2(:,:) = v2(:,:) - vm(:,:)**2
+      w2(:,:) = w2(:,:) - wm(:,:)**2
+      vw(:,:) = vw(:,:) - vm(:,:)*wm(:,:)
+      uv(:,:) = uv(:,:) - um(:,:)*vm(:,:)
       if(myid == 0) then
         open(newunit=iunit,file=fname)
         do k=1,ng(3)
           do i=1,ng(1)
-            x_g = (i-.5)*dl(1)
             write(iunit,fmt_rp) x_g,z_g(k),um(i,k),vm(i,k),wm(i,k), &
                                            u2(i,k),v2(i,k),w2(i,k), &
                                            vw(i,k),uv(i,k)
@@ -468,7 +486,7 @@ module mod_output
         close(iunit)
       end if
     case(1)
-      grid_area_ratio = dl(1)/l(1)
+      vol = l(1)
       p = ng(2)
       q = ng(3)
       allocate(um(p,q),vm(p,q),wm(p,q),u2(p,q),v2(p,q),w2(p,q),uv(p,q),uw(p,q))
@@ -484,19 +502,28 @@ module mod_output
       do k=lo(3),hi(3)
         do j=lo(2),hi(2)
           do i=lo(1),hi(1)
-            um(j,k) = um(j,k) + u(i,j,k)
-            vm(j,k) = vm(j,k) + 0.5*(v(i,j-1,k)+v(i,j,k))
-            wm(j,k) = wm(j,k) + 0.5*(w(i,j,k-1)+w(i,j,k))
-            u2(j,k) = u2(j,k) + u(i,j,k)**2
-            v2(j,k) = v2(j,k) + 0.5*(v(i,j-1,k)**2+v(i,j,k)**2)
-            w2(j,k) = w2(j,k) + 0.5*(w(i,j,k-1)**2+w(i,j,k)**2)
+            vol_cell = dx(i)
+            um(j,k) = um(j,k) + u(i,j,k)*vol_cell
+            vm(j,k) = vm(j,k) + 0.5*(v(i,j-1,k)+v(i,j,k))*vol_cell
+            wm(j,k) = wm(j,k) + 0.5*(w(i,j,k-1)+w(i,j,k))*vol_cell
+            u2(j,k) = u2(j,k) + u(i,j,k)**2*vol_cell
+            v2(j,k) = v2(j,k) + 0.5*(v(i,j-1,k)**2+v(i,j,k)**2)*vol_cell
+            w2(j,k) = w2(j,k) + 0.5*(w(i,j,k-1)**2+w(i,j,k)**2)*vol_cell
             uv(j,k) = uv(j,k) + 0.25*(u(i-1,j,k) + u(i,j,k))* &
-                                     (v(i,j-1,k) + v(i,j,k))
+                                     (v(i,j-1,k) + v(i,j,k))*vol_cell
             uw(j,k) = uw(j,k) + 0.25*(u(i-1,j,k) + u(i,j,k))* &
-                                     (w(i,j,k-1) + w(i,j,k))
+                                     (w(i,j,k-1) + w(i,j,k))*vol_cell
           end do
         end do
       end do
+      um(:,:) = um(:,:)/vol
+      vm(:,:) = vm(:,:)/vol
+      wm(:,:) = wm(:,:)/vol
+      u2(:,:) = u2(:,:)/vol
+      v2(:,:) = v2(:,:)/vol
+      w2(:,:) = w2(:,:)/vol
+      uv(:,:) = uv(:,:)/vol
+      uw(:,:) = uw(:,:)/vol
       call MPI_ALLREDUCE(MPI_IN_PLACE,um(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,vm(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,wm(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
@@ -505,19 +532,15 @@ module mod_output
       call MPI_ALLREDUCE(MPI_IN_PLACE,w2(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,uv(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
       call MPI_ALLREDUCE(MPI_IN_PLACE,uw(1,1),ng(2)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
-      um(:,:) = um(:,:)*grid_area_ratio
-      vm(:,:) = vm(:,:)*grid_area_ratio
-      wm(:,:) = wm(:,:)*grid_area_ratio
-      u2(:,:) = u2(:,:)*grid_area_ratio - um(:,:)**2
-      v2(:,:) = v2(:,:)*grid_area_ratio - vm(:,:)**2
-      w2(:,:) = w2(:,:)*grid_area_ratio - wm(:,:)**2
-      uv(:,:) = uv(:,:)*grid_area_ratio - um(:,:)*vm(:,:)
-      uw(:,:) = uw(:,:)*grid_area_ratio - um(:,:)*wm(:,:)
+      u2(:,:) = u2(:,:) - um(:,:)**2
+      v2(:,:) = v2(:,:) - vm(:,:)**2
+      w2(:,:) = w2(:,:) - wm(:,:)**2
+      uv(:,:) = uv(:,:) - um(:,:)*vm(:,:)
+      uw(:,:) = uw(:,:) - um(:,:)*wm(:,:)
       if(myid == 0) then
         open(newunit=iunit,file=fname)
         do k=1,ng(3)
           do j=1,ng(2)
-            y_g = (j-.5)*dl(2)
             write(iunit,fmt_rp) y_g,z_g(k),um(j,k),vm(j,k),wm(j,k), &
                                            u2(j,k),v2(j,k),w2(j,k), &
                                            uv(j,k),uw(j,k)

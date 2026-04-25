@@ -13,8 +13,8 @@ module mod_initflow
   private
   public initflow,initscal,add_noise
   contains
-  subroutine initflow(inivel,bcvel,ng,lo,l,dl,zc,zf,dzc,dzf,visc, &
-                      is_forced,velf,bforce,is_wallturb,u,v,w,p)
+  subroutine initflow(inivel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+                      visc,is_forced,velf,bforce,is_wallturb,u,v,w,p)
     !
     ! computes initial conditions for the velocity field
     !
@@ -22,8 +22,8 @@ module mod_initflow
     character(len=*), intent(in) :: inivel
     real(rp), intent(in), dimension(0:1,3,3) :: bcvel
     integer , intent(in), dimension(3) :: ng,lo
-    real(rp), intent(in), dimension(3) :: l,dl
-    real(rp), intent(in), dimension(0:) :: zc,zf,dzc,dzf
+    real(rp), intent(in), dimension(3) :: l
+    real(rp), intent(in), dimension(0:) :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
     real(rp), intent(in)               :: visc
     logical , intent(in), dimension(3) :: is_forced
     real(rp), intent(in), dimension(3) :: velf,bforce
@@ -33,7 +33,7 @@ module mod_initflow
     !real(rp), allocatable, dimension(:,:) :: u2d
     integer :: i,j,k
     logical :: is_noise,is_mean,is_pair
-    real(rp) :: xc,yc,zcc,xf,yf,zff
+    real(rp) :: xxc,yyc,zzc,xxf,yyf,zzf
     real(rp), allocatable, dimension(:) :: zc2
     real(rp) :: uref,lref
     real(rp) :: ubulk,reb,retau
@@ -101,32 +101,32 @@ module mod_initflow
       is_mean = .true.
     case('tgv')
       do k=1,n(3)
-        zcc = zc(k)/l(3)*2.*pi
+        zzc = zc(k)/l(3)*2.*pi
         do j=1,n(2)
-          yc = (j+lo(2)-1-.5)*dl(2)/l(2)*2.*pi
-          yf = (j+lo(2)-1-.0)*dl(2)/l(2)*2.*pi
+          yyc = yc(j)/l(2)*2.*pi
+          yyf = yf(j)/l(2)*2.*pi
           do i=1,n(1)
-            xc = (i+lo(1)-1-.5)*dl(1)/l(1)*2.*pi
-            xf = (i+lo(1)-1-.0)*dl(1)/l(1)*2.*pi
-            u(i,j,k) =  sin(xf)*cos(yc)*cos(zcc)*uref
-            v(i,j,k) = -cos(xc)*sin(yf)*cos(zcc)*uref
+            xxc = xc(i)/l(1)*2.*pi
+            xxf = xf(i)/l(1)*2.*pi
+            u(i,j,k) =  sin(xxf)*cos(yyc)*cos(zzc)*uref
+            v(i,j,k) = -cos(xxc)*sin(yyf)*cos(zzc)*uref
             w(i,j,k) = 0.
-            p(i,j,k) = 0.!(cos(2.*xc)+cos(2.*yc))*(cos(2.*zcc)+2.)/16.*uref**2
+            p(i,j,k) = 0.!(cos(2.*xxc)+cos(2.*yyc))*(cos(2.*zzc)+2.)/16.*uref**2
           end do
         end do
       end do
     case('tgw')
       do k=1,n(3)
         do j=1,n(2)
-          yc = (j+lo(2)-1-.5)*dl(2)
-          yf = (j+lo(2)-1-.0)*dl(2)
+          yyc = yc(j)
+          yyf = yf(j)
           do i=1,n(1)
-            xc = (i+lo(1)-1-.5)*dl(1)
-            xf = (i+lo(1)-1-.0)*dl(1)
-            u(i,j,k) =  cos(xf)*sin(yc)*uref
-            v(i,j,k) = -sin(xc)*cos(yf)*uref
+            xxc = xc(i)
+            xxf = xf(i)
+            u(i,j,k) =  cos(xxf)*sin(yyc)*uref
+            v(i,j,k) = -sin(xxc)*cos(yyf)*uref
             w(i,j,k) = 0.
-            p(i,j,k) = -(cos(2.*xc)+cos(2.*yc))/4.*uref**2
+            p(i,j,k) = -(cos(2.*xxc)+cos(2.*yyc))/4.*uref**2
           end do
         end do
       end do
@@ -135,20 +135,20 @@ module mod_initflow
       ! see M. Antuono, JFM 890, A23 (2020)
       !
       do k=1,n(3)
-        zcc = zc(k)/l(3)*2.*pi+0.5*pi
-        zff = zf(k)/l(3)*2.*pi+0.5*pi
+        zzc = zc(k)/l(3)*2.*pi+0.5*pi
+        zzf = zf(k)/l(3)*2.*pi+0.5*pi
         do j=1,n(2)
-          yc = (j+lo(2)-1-.5)*dl(2)/l(2)*2.*pi+0.5*pi
-          yf = (j+lo(2)-1-.0)*dl(2)/l(2)*2.*pi+0.5*pi
+          yyc = yc(j)/l(2)*2.*pi+0.5*pi
+          yyf = yf(j)/l(2)*2.*pi+0.5*pi
           do i=1,n(1)
-            xc = (i+lo(1)-1-.5)*dl(1)/l(1)*2.*pi+0.5*pi
-            xf = (i+lo(1)-1-.0)*dl(1)/l(1)*2.*pi+0.5*pi
-            u(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(sin(xf-5.*pi/6.)*cos(yc-1.*pi/6.)*sin(zcc         ) - &
-                                                  sin(xf-1.*pi/6.)*sin(yc         )*cos(zcc-5.*pi/6.))*uref
-            v(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(sin(xc         )*sin(yf-5.*pi/6.)*sin(zcc-1.*pi/6.) - &
-                                                  cos(xc-5.*pi/6.)*sin(yf-1.*pi/6.)*sin(zcc         ))*uref
-            w(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(cos(xc-1.*pi/6.)*sin(yc         )*sin(zff-5.*pi/6.) - &
-                                                  sin(xc         )*cos(yc-5.*pi/6.)*sin(zff-1.*pi/6.))*uref
+            xxc = xc(i)/l(1)*2.*pi+0.5*pi
+            xxf = xf(i)/l(1)*2.*pi+0.5*pi
+            u(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(sin(xxf-5.*pi/6.)*cos(yyc-1.*pi/6.)*sin(zzc         ) - &
+                                                  sin(xxf-1.*pi/6.)*sin(yyc         )*cos(zzc-5.*pi/6.))*uref
+            v(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(sin(xxc         )*sin(yyf-5.*pi/6.)*sin(zzc-1.*pi/6.) - &
+                                                  cos(xxc-5.*pi/6.)*sin(yyf-1.*pi/6.)*sin(zzc         ))*uref
+            w(i,j,k) = (4.*sqrt(2.)/3./sqrt(3.))*(cos(xxc-1.*pi/6.)*sin(yyc         )*sin(zzf-5.*pi/6.) - &
+                                                  sin(xxc         )*cos(yyc-5.*pi/6.)*sin(zzf-1.*pi/6.))*uref
             p(i,j,k) = -(u(i,j,k)**2+v(i,j,k)**2+w(i,j,k)**2)/2.
           end do
         end do
@@ -204,7 +204,7 @@ module mod_initflow
     end if
     if(is_mean) then
       if(trim(inivel) /= 'iop') then
-        call set_mean(n,dzf/l(3)*(dl(1)/l(1))*(dl(2)/l(2)),ubulk,u(1:n(1),1:n(2),1:n(3)))
+        call set_mean(n,ubulk,dxc,dyf,dzf,l,u(1:n(1),1:n(2),1:n(3)))
       end if
     end if
     if(is_wallturb) is_pair = .true.
@@ -221,17 +221,17 @@ module mod_initflow
         ! see Henningson and Kim, JFM 1991
         !
         do k=1,n(3)
-          zcc = 2.*zc(k)/l(3) - 1. ! z rescaled to be between -1 and +1
-          zff = 2.*(zc(k)/l(3) + .5*dzf(k)/l(3)) - 1.
+          zzc = 2.*zc(k)/l(3) - 1. ! z rescaled to be between -1 and +1
+          zzf = 2.*zf(k)/l(3) - 1.
           do j=1,n(2)
-            yc = ((lo(2)-1+j-0.5)*dl(2)-.5*l(2))*2./l(3)
-            yf = ((lo(2)-1+j-0.0)*dl(2)-.5*l(2))*2./l(3)
+            yyc = (yc(j)-.5*l(2))*2./l(3)
+            yyf = (yf(j)-.5*l(2))*2./l(3)
             do i=1,n(1)
-              xc = ((lo(1)-1+i-0.5)*dl(1)-.5*l(1))*2./l(3)
-              xf = ((lo(1)-1+i-0.0)*dl(1)-.5*l(1))*2./l(3)
+              xxc = (xc(i)-.5*l(1))*2./l(3)
+              xxf = (xf(i)-.5*l(1))*2./l(3)
               !u(i,j,k) = u1d(k)
-              v(i,j,k) = -1.*gxy(yf,xc)*dfz(zcc)*ubulk*1.5
-              w(i,j,k) =  1.*fz(zff)*dgxy(yc,xc)*ubulk*1.5
+              v(i,j,k) = -1.*gxy(yyf,xxc)*dfz(zzc)*ubulk*1.5
+              w(i,j,k) =  1.*fz(zzf)*dgxy(yyc,xxc)*ubulk*1.5
               p(i,j,k) = 0.
             end do
           end do
@@ -242,18 +242,18 @@ module mod_initflow
         ! for the cross-stream velocity components
         !
         do k=1,n(3)
-          zcc = (zc(k)/l(3)                )*2.*pi
-          zff = (zc(k)/l(3)+0.5*dzc(k)/l(3))*2.*pi
+          zzc = zc(k)/l(3)*2.*pi
+          zzf = zf(k)/l(3)*2.*pi
           do j=1,n(2)
-            yc = (j+lo(2)-1-.5)*dl(2)/l(2)*2.*pi
-            yf = (j+lo(2)-1-.0)*dl(2)/l(2)*2.*pi
+            yyc = yc(j)/l(2)*2.*pi
+            yyf = yf(j)/l(2)*2.*pi
             do i=1,n(1)
-              xc = (i+lo(1)-1-.5)*dl(1)/l(1)*2.*pi
-              xf = (i+lo(1)-1-.0)*dl(1)/l(1)*2.*pi
+              xxc = xc(i)/l(1)*2.*pi
+              xxf = xf(i)/l(1)*2.*pi
               !u(i,j,k) = u1d(k)
-              v(i,j,k) =  sin(xc)*cos(yf)*cos(zcc)*ubulk
-              w(i,j,k) = -cos(xc)*sin(yc)*cos(zff)*ubulk
-              p(i,j,k) = 0.!(cos(2.*xc)+cos(2.*yc))*(cos(2.*zcc)+2.)/16.
+              v(i,j,k) =  sin(xxc)*cos(yyf)*cos(zzc)*ubulk
+              w(i,j,k) = -cos(xxc)*sin(yyc)*cos(zzf)*ubulk
+              p(i,j,k) = 0.!(cos(2.*xxc)+cos(2.*yyc))*(cos(2.*zzc)+2.)/16.
             end do
           end do
         end do
@@ -261,8 +261,8 @@ module mod_initflow
     end if
   end subroutine initflow
   !
-  subroutine initscal(iniscal,bcscal,ng,lo,l,dl,zc,dzf,salpha, &
-                      is_sforced,scalf,s)
+  subroutine initscal(iniscal,bcscal,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+                      salpha,is_sforced,scalf,s)
     !
     ! computes initial conditions for the scalar field
     !
@@ -270,8 +270,8 @@ module mod_initflow
     character(len=3), intent(in)                 :: iniscal
     real(rp), intent(in   ), dimension(0:1,3)    :: bcscal
     integer , intent(in   ), dimension(3)        :: ng,lo
-    real(rp), intent(in   ), dimension(3)        :: l,dl
-    real(rp), intent(in   ), dimension(0:)       :: zc,dzf
+    real(rp), intent(in   ), dimension(3)        :: l
+    real(rp), intent(in   ), dimension(0:)       :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
     real(rp), intent(in   )                      :: salpha
     logical , intent(in   )                      :: is_sforced
     real(rp), intent(in   )                      :: scalf
@@ -281,7 +281,6 @@ module mod_initflow
     logical :: is_noise,is_mean
     real(rp) :: sref
     integer, dimension(3) :: n
-    integer  :: ii
     real(rp) :: xx
     !
     n(:) = shape(s) - 2*1
@@ -328,8 +327,7 @@ module mod_initflow
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
-            ii = i+lo(1)-1
-            xx = (ii-0.5)*dl(1)/l(1)
+            xx = xc(i)/l(1)
             s(i,j,k) = ((1.-xx)*bcscal(0,1) + xx*bcscal(1,1))
           end do
         end do
@@ -340,7 +338,7 @@ module mod_initflow
       call add_noise(ng,lo,123,.05_rp,s(1:n(1),1:n(2),1:n(3)))
     end if
     if(is_mean) then
-      call set_mean(n,dzf/l(3)*(dl(1)/l(1))*(dl(2)/l(2)),sref,s(1:n(1),1:n(2),1:n(3)))
+      call set_mean(n,sref,dxf,dyf,dzf,l,s(1:n(1),1:n(2),1:n(3)))
     end if
   end subroutine initscal
   !
@@ -376,23 +374,26 @@ module mod_initflow
     end do
   end subroutine add_noise
   !
-  subroutine set_mean(n,grid_vol_ratio,mean,p)
+  subroutine set_mean(n,mean,dx,dy,dz,l,p)
   implicit none
   integer , intent(in), dimension(3) :: n
-  real(rp), intent(in), dimension(0:) :: grid_vol_ratio
   real(rp), intent(in) :: mean
+  real(rp), intent(in), dimension(0:) :: dx,dy,dz
+  real(rp), intent(in), dimension(3) :: l
   real(rp), intent(inout), dimension(:,:,:) :: p
-  real(rp) :: meanold
+  real(rp) :: vol,meanold
   integer :: i,j,k
+  vol = product(l(:))
   meanold = 0.
   !$OMP PARALLEL DO COLLAPSE(3) DEFAULT(shared) REDUCTION(+:meanold)
   do k=1,n(3)
     do j=1,n(2)
       do i=1,n(1)
-        meanold = meanold + p(i,j,k)*grid_vol_ratio(k)
+        meanold = meanold + p(i,j,k)*dx(i)*dy(j)*dz(k)
       end do
     end do
   end do
+  meanold = meanold/vol
   call MPI_ALLREDUCE(MPI_IN_PLACE,meanold,1,MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
   !
   if(abs(meanold) > epsilon(0._rp)) then

@@ -12,7 +12,7 @@ module mod_utils
   public device_memory_footprint
 #endif
 contains
-  subroutine bulk_mean(n,grid_vol_ratio,p,mean)
+  subroutine bulk_mean(n,l,dx,dy,dz,p,mean)
     !
     ! compute the mean value of an observable over the entire domain
     !
@@ -20,7 +20,8 @@ contains
     use mod_types
     implicit none
     integer , intent(in), dimension(3) :: n
-    real(rp), intent(in), dimension(0:) :: grid_vol_ratio
+    real(rp), intent(in), dimension(3) :: l
+    real(rp), intent(in), dimension(0:) :: dx,dy,dz
     real(rp), intent(in), dimension(0:,0:,0:) :: p
     real(rp), intent(out) :: mean
     integer :: i,j,k
@@ -32,13 +33,14 @@ contains
     do k=1,n(3)
       do j=1,n(2)
         do i=1,n(1)
-          mean = mean + p(i,j,k)*grid_vol_ratio(k)
+          mean = mean + p(i,j,k)*dx(i)*dy(j)*dz(k)
         end do
       end do
     end do
     !$acc end data
     !$acc wait(1)
     call MPI_ALLREDUCE(MPI_IN_PLACE,mean,1,MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
+    mean = mean/product(l(:))
   end subroutine bulk_mean
   pure integer function f_sizeof(val) result(isize)
     !
@@ -76,10 +78,10 @@ contains
     nh(:) = 1
     itotal = itotal + product(int(n(:),i8)+2*int(nh(:),i8))*rp_size*(5+nscal)
     !
-    ! 2. grids arrays: zc,zf,dzc,dzf,dzci,dzfi,grid_vol_ratio_c,grid_vol_ratio_f (tiny footprint)
+    ! 2. grid arrays (tiny footprint): local coordinates, spacings, and inverse spacings
     !
     nh(:) = 1
-    itotal = itotal + (n(3)+2*nh(3))*rp_size*8
+    itotal = itotal + sum(int(n(:),i8)+2*int(nh(:),i8))*rp_size*6
     !
     ! 3. solver eigenvalues and Gauss elimination coefficient arrays (small footprint)
     !    rhs?%[x,y,z] arrays, lambdaxy? arrays, and a?,b?,c? arrays
@@ -122,11 +124,13 @@ contains
     !    taken directly from `mod_common_cudecomp`
     !
     block
-      use mod_common_cudecomp, only: work,work_halo,work_ptdma,solver_buf_0,solver_buf_1,pz_aux_1,pz_aux_2
+      use mod_common_cudecomp, only: work,work_halo,work_ptdma,solver_buf_0,solver_buf_1,pz_aux_1,pz_aux_2,gemm_buf_x,gemm_buf_y
       itemp = size(work        ,kind=i8) + size(work_halo   ,kind=i8) + &
               size(solver_buf_0,kind=i8) + size(solver_buf_1,kind=i8)
       if(allocated(pz_aux_1)) itemp = itemp + size(pz_aux_1,kind=i8)
       if(allocated(pz_aux_2)) itemp = itemp + size(pz_aux_2,kind=i8)
+      if(allocated(gemm_buf_x)) itemp = itemp + size(gemm_buf_x,kind=i8)
+      if(allocated(gemm_buf_y)) itemp = itemp + size(gemm_buf_y,kind=i8)
       if(is_poisson_pcr_tdma) itemp = itemp + size(work_ptdma,kind=i8)
       itotal = itotal + itemp*rp_size
     end block

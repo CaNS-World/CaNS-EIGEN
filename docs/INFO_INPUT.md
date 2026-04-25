@@ -7,7 +7,7 @@ Consider the following input file as an example (corresponding to a turbulent pl
 &dns
 ng(1:3) = 512, 256, 144
 l(1:3) = 6., 3., 1.
-gtype = 1, gr = 0.
+gtype(1:3) = 1, 1, 1, gr(1:3) = 0., 0., 0.
 cfl = 0.95, dtmax = 1.e5, dt_f = -1.
 visci = 5640.
 inivel = 'poi'
@@ -50,19 +50,21 @@ endif
 ```fortran
 ng(1:3) = 512, 256, 144
 l(1:3) = 6., 3., 1.
-gtype = 1, gr = 0.
+gtype(1:3) = 1, 1, 1, gr(1:3) = 0., 0., 0.
 ```
 
 These lines set the computational grid.
 
 `ng(1:3)` and `l(1:3)` are the **number of points**  and **domain length** in each direction.
 
-`gtype` and `gr` are the **grid stretching type** and **grid stretching parameter** that tweak the non-uniform grid in the third direction; zero `gr` implies no stretching. See `initgrid.f90` for more details. The following options are available for `gtype`:
+`gtype(1:3)` and `gr(1:3)` are the **grid stretching type** and **grid stretching parameter** that tweak the non-uniform grid in each direction; zero `gr` implies no stretching. See `initgrid.f90` for more details. The following options are available for `gtype`:
 
 * `1`: grid clustered towards both ends (default)
 * `2`: grid clustered towards the lower end
 * `3`: grid clustered towards the upper end
 * `4`: grid clustered towards the middle
+
+While the grid may always be non-uniform along `z`, it can only be made non-uniform along `x` and `y` if `is_poisson_fft` is `.false.` in that direction (see below).
 
 ---
 
@@ -355,7 +357,7 @@ This namelist defines parameters related to the numerical discretization and com
 ```fortran
 &numerics
 is_impdiff = F, is_impdiff_1d = F
-is_poisson_pcr_tdma = F
+is_poisson_pcr_tdma = F, is_poisson_fft = T, T
 /
 ```
 
@@ -364,7 +366,9 @@ In these lines, `is_impdiff` and `is_impdiff_1d` enable the (semi-) **implicit t
 * `is_impdiff`, if `.true.`, the diffusion term of the Navier-Stokes and scalar equations is integrated in time implicitly, which may improve the stability of the numerical algorithm for viscous-dominated flows.
 * `is_impdiff_1d` is similar to `is_impdiff`, but with implicit diffusion *only* along Z, which may be advantageous when the grid along Z is much finer than along the other directions; *for optimal parallel performance, the domain should not be decomposed along Z* (`ipencil_axis=3`, or `ipencil_axis = 1/2` with `dims(2) = 1`)
 
-Finally, `is_poisson_pcr_tdma`, if `.true.`, allows for solving the Poisson/Helmholtz equations along Z with a parallel cyclic reduction--tridiagonal matrix algorithm (PCR-TDMA) method. This approach may result in major gains in scalability for pencil-distributed simulations at scale, on many GPUs.
+`is_poisson_pcr_tdma`, if `.true.`, allows for solving the Poisson/Helmholtz equations along Z with a parallel cyclic reduction--tridiagonal matrix algorithm (PCR-TDMA) method. This approach may result in major gains in scalability for pencil-distributed simulations at scale, on many GPUs.
+
+Finally, `is_poisson_fft` toggles the FFT-based synthesis in the Poisson solver on and off along `x` and `y`; setting it to `.false.` in a direction activates the generalized-eigenvector/GEMM path needed for non-uniform grids there.
 
 # About the `&other_options` namelist under `input.nml`
 

@@ -37,16 +37,17 @@ module mod_initmpi
   integer, parameter :: CUDECOMP_RANK_NULL = -1
 #endif
   contains
-  subroutine initmpi(ng,dims,bc,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,nb,is_bound)
+  subroutine initmpi(ng,dims,is_poisson_fft,bc,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,nb,is_bound)
     implicit none
     integer, intent(in   ), dimension(3) :: ng
     integer, intent(inout), dimension(2) :: dims
+    logical, intent(in   ), dimension(2) :: is_poisson_fft
     character(len=1), intent(in), dimension(0:1,3) :: bc
     integer, intent(out), dimension(3    ) :: lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z
     integer, intent(out), dimension(0:1,3) :: nb
     logical, intent(out), dimension(0:1,3) :: is_bound
     logical, dimension(3) :: periods
-    integer :: l,ipencil_t(2)
+    integer :: l,ipencil_t(2),gdims_poi(3)
 #if defined(_OPENACC)
     integer(acc_device_kind) ::dev_type
     integer :: local_comm,mydev,ndev
@@ -81,6 +82,8 @@ module mod_initmpi
     call acc_set_device_num(mydev,dev_type)
     call acc_init(dev_type)
     !
+    gdims_poi(:) = ng(:)
+    where(is_poisson_fft(1:2)) gdims_poi(1:2) = 2*(ng(1:2)/2+1)
 #if !defined(_USE_DIEZDECOMP)
     istat = cudecompInit(ch,MPI_COMM_WORLD)
     !
@@ -89,7 +92,7 @@ module mod_initmpi
     istat = cudecompGridDescConfigSetDefaults(conf)
     conf%transpose_comm_backend = cudecomp_t_comm_backend
     conf%transpose_axis_contiguous(:) = [.true.,.true.,.false.]
-    conf%gdims(:)      = [2*(ng(1)/2+1),2*(ng(2)/2+1),ng(3)]
+    conf%gdims(:)      = gdims_poi(:)
     conf%gdims_dist(:) = ng(:)
     conf%pdims(:)      = dims(:)
     istat = cudecompGridDescAutotuneOptionsSetDefaults(atune_conf)
@@ -169,8 +172,8 @@ module mod_initmpi
     end if
     istat = cudecompGridDescCreate(ch,gd,conf,atune_conf)
 #else
-    call diezdecompGridDescCreate(gd    ,dims,ng                                 ,ng,[.false.,.false.,.false.],periods,ipencil)
-    call diezdecompGridDescCreate(gd_poi,dims,[2*(ng(1)/2+1),2*(ng(2)/2+1),ng(3)],ng,[.true. ,.true. ,.false.],periods,ipencil)
+    call diezdecompGridDescCreate(gd    ,dims,ng       ,ng,[.false.,.false.,.false.],periods,ipencil)
+    call diezdecompGridDescCreate(gd_poi,dims,gdims_poi,ng,[.true. ,.true. ,.false.],periods,ipencil)
     !
     ! tweak MPI buffer order by Rafael Diez to improve performance
     !

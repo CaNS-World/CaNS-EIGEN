@@ -20,11 +20,10 @@ module mod_mom
          mom_xyz_ad
   contains
   !
-  subroutine momx_a(nx,ny,nz,dxi,dyi,dzfi,u,v,w,dudt)
+  subroutine momx_a(nx,ny,nz,dxci,dyfi,dzfi,u,v,w,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dyfi,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dudt
     integer :: i,j,k
@@ -45,19 +44,18 @@ module mod_mom
           ! Momentum balance
           !
           dudt(i,j,k) = dudt(i,j,k) + &
-                        dxi*(     -uuip + uuim ) + &
-                        dyi*(     -vujp + vujm ) + &
+                        dxci(i)*( -uuip + uuim ) + &
+                        dyfi(j)*( -vujp + vujm ) + &
                         dzfi(k)*( -wukp + wukm )
         end do
       end do
     end do
   end subroutine momx_a
   !
-  subroutine momy_a(nx,ny,nz,dxi,dyi,dzfi,u,v,w,dvdt)
+  subroutine momy_a(nx,ny,nz,dxfi,dyci,dzfi,u,v,w,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzfi
+    real(rp), intent(in), dimension(0:) :: dxfi,dyci,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dvdt
     integer :: i,j,k
@@ -78,19 +76,18 @@ module mod_mom
           ! Momentum balance
           !
           dvdt(i,j,k) = dvdt(i,j,k) + &
-                        dxi*(     -uvip + uvim ) + &
-                        dyi*(     -vvjp + vvjm ) + &
+                        dxfi(i)*( -uvip + uvim ) + &
+                        dyci(j)*( -vvjp + vvjm ) + &
                         dzfi(k)*( -wvkp + wvkm )
         end do
       end do
     end do
   end subroutine momy_a
   !
-  subroutine momz_a(nx,ny,nz,dxi,dyi,dzci,u,v,w,dwdt)
+  subroutine momz_a(nx,ny,nz,dxfi,dyfi,dzci,u,v,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci
+    real(rp), intent(in), dimension(0:) :: dxfi,dyfi,dzci
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dwdt
     integer :: i,j,k
@@ -111,94 +108,111 @@ module mod_mom
           ! Momentum balance
           !
           dwdt(i,j,k) = dwdt(i,j,k) + &
-                        dxi*(     -uwip + uwim ) + &
-                        dyi*(     -vwjp + vwjm ) + &
+                        dxfi(i)*( -uwip + uwim ) + &
+                        dyfi(j)*( -vwjp + vwjm ) + &
                         dzci(k)*( -wwkp + wwkm )
         end do
       end do
     end do
   end subroutine momz_a
   !
-  subroutine momx_a_vv(nx,ny,nz,dxi,dyi,dzfi,u,v,w,dudt)
+  subroutine momx_a_vv(nx,ny,nz,dxci,dxfi,dyfi,dzfi,u,v,w,dudt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyfi,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dudt
     integer :: i,j,k
     real(rp) :: uuip,uuim,vujp,vujm,wukp,wukm
+    real(rp), allocatable, dimension(:), save :: rdxm,rdxp
     !
+    if(.not.allocated(rdxm) .and. .not.allocated(rdxp)) then
+      allocate(rdxm, mold = dxci)
+      allocate(rdxp, mold = dxci)
+      do i=1,nx
+        rdxm(i) = dxci(i)/dxfi(i  )
+        rdxp(i) = dxci(i)/dxfi(i+1)
+      end do
+      !$acc enter data copyin(rdxm,rdxp) async(1)
+    end if
     !$acc parallel loop collapse(3) default(present) private(uuip,uuim,vujp,vujm,wukp,wukm) async(1)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uuip,uuim,vujp,vujm,wukp,wukm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          uuip = 0.25*( u(i  ,j  ,k  )+u(i+1,j  ,k  ) )*u(i+1,j,k)
-          uuim = 0.25*( u(i  ,j  ,k  )+u(i-1,j  ,k  ) )*u(i-1,j,k)
-          vujp = 0.25*( v(i  ,j  ,k  )+v(i+1,j  ,k  ) )*u(i,j+1,k)
-          vujm = 0.25*( v(i  ,j-1,k  )+v(i+1,j-1,k  ) )*u(i,j-1,k)
-          wukp = 0.25*( w(i  ,j  ,k  )+w(i+1,j  ,k  ) )*u(i,j,k+1)
-          wukm = 0.25*( w(i  ,j  ,k-1)+w(i+1,j  ,k-1) )*u(i,j,k-1)
+          uuip = 0.25*(         u(i,j  ,k  )+        u(i+1,j  ,k  ) )*u(i+1,j,k)
+          uuim = 0.25*(         u(i,j  ,k  )+        u(i-1,j  ,k  ) )*u(i-1,j,k)
+          vujp = 0.25*( rdxm(i)*v(i,j  ,k  )+rdxp(i)*v(i+1,j  ,k  ) )*u(i,j+1,k)
+          vujm = 0.25*( rdxm(i)*v(i,j-1,k  )+rdxp(i)*v(i+1,j-1,k  ) )*u(i,j-1,k)
+          wukp = 0.25*( rdxm(i)*w(i,j  ,k  )+rdxp(i)*w(i+1,j  ,k  ) )*u(i,j,k+1)
+          wukm = 0.25*( rdxm(i)*w(i,j  ,k-1)+rdxp(i)*w(i+1,j  ,k-1) )*u(i,j,k-1)
           !
           ! Momentum balance
           !
           dudt(i,j,k) = dudt(i,j,k) + &
-                        dxi*(     -uuip + uuim ) + &
-                        dyi*(     -vujp + vujm ) + &
+                        dxci(i)*( -uuip + uuim ) + &
+                        dyfi(j)*( -vujp + vujm ) + &
                         dzfi(k)*( -wukp + wukm )
         end do
       end do
     end do
   end subroutine momx_a_vv
   !
-  subroutine momy_a_vv(nx,ny,nz,dxi,dyi,dzfi,u,v,w,dvdt)
+  subroutine momy_a_vv(nx,ny,nz,dxfi,dyci,dyfi,dzfi,u,v,w,dvdt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzfi
+    real(rp), intent(in), dimension(0:) :: dxfi,dyci,dyfi,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dvdt
     integer :: i,j,k
     real(rp) :: uvip,uvim,vvjp,vvjm,wvkp,wvkm
+    real(rp), allocatable, dimension(:), save :: rdym,rdyp
     !
+    if(.not.allocated(rdym) .and. .not.allocated(rdyp)) then
+      allocate(rdym, mold = dyci)
+      allocate(rdyp, mold = dyci)
+      do j=1,ny
+        rdym(j) = dyci(j)/dyfi(j  )
+        rdyp(j) = dyci(j)/dyfi(j+1)
+      end do
+      !$acc enter data copyin(rdym,rdyp) async(1)
+    end if
     !$acc parallel loop collapse(3) default(present) private(uvip,uvim,vvjp,vvjm,wvkp,wvkm) async(1)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uvip,uvim,vvjp,vvjm,wvkp,wvkm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          uvip = 0.25*( u(i  ,j  ,k  )+u(i  ,j+1,k  ) )*v(i+1,j,k)
-          uvim = 0.25*( u(i-1,j  ,k  )+u(i-1,j+1,k  ) )*v(i-1,j,k)
-          vvjp = 0.25*( v(i  ,j  ,k  )+v(i  ,j+1,k  ) )*v(i,j+1,k)
-          vvjm = 0.25*( v(i  ,j  ,k  )+v(i  ,j-1,k  ) )*v(i,j-1,k)
-          wvkp = 0.25*( w(i  ,j  ,k  )+w(i  ,j+1,k  ) )*v(i,j,k+1)
-          wvkm = 0.25*( w(i  ,j  ,k-1)+w(i  ,j+1,k-1) )*v(i,j,k-1)
+          uvip = 0.25*( rdym(j)*u(i  ,j,k  )+rdyp(j)*u(i  ,j+1,k  ) )*v(i+1,j,k)
+          uvim = 0.25*( rdym(j)*u(i-1,j,k  )+rdyp(j)*u(i-1,j+1,k  ) )*v(i-1,j,k)
+          vvjp = 0.25*(         v(i  ,j,k  )+        v(i  ,j+1,k  ) )*v(i,j+1,k)
+          vvjm = 0.25*(         v(i  ,j,k  )+        v(i  ,j-1,k  ) )*v(i,j-1,k)
+          wvkp = 0.25*( rdym(j)*w(i  ,j,k  )+rdyp(j)*w(i  ,j+1,k  ) )*v(i,j,k+1)
+          wvkm = 0.25*( rdym(j)*w(i  ,j,k-1)+rdyp(j)*w(i  ,j+1,k-1) )*v(i,j,k-1)
           !
           ! Momentum balance
           !
           dvdt(i,j,k) = dvdt(i,j,k) + &
-                        dxi*(     -uvip + uvim ) + &
-                        dyi*(     -vvjp + vvjm ) + &
+                        dxfi(i)*( -uvip + uvim ) + &
+                        dyci(j)*( -vvjp + vvjm ) + &
                         dzfi(k)*( -wvkp + wvkm )
         end do
       end do
     end do
   end subroutine momy_a_vv
   !
-  subroutine momz_a_vv(nx,ny,nz,dxi,dyi,dzci,dzfi,u,v,w,dwdt)
+  subroutine momz_a_vv(nx,ny,nz,dxfi,dyfi,dzci,dzfi,u,v,w,dwdt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in), dimension(0:) :: dxfi,dyfi,dzci,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
     real(rp), dimension( :, :, :), intent(inout) :: dwdt
     integer :: i,j,k
@@ -229,20 +243,19 @@ module mod_mom
           ! Momentum balance
           !
           dwdt(i,j,k) = dwdt(i,j,k) + &
-                        dxi*(     -uwip + uwim ) + &
-                        dyi*(     -vwjp + vwjm ) + &
+                        dxfi(i)*( -uwip + uwim ) + &
+                        dyfi(j)*( -vwjp + vwjm ) + &
                         dzci(k)*( -wwkp + wwkm )
         end do
       end do
     end do
   end subroutine momz_a_vv
   !
-  subroutine momx_d(nx,ny,nz,dxi,dyi,dzci,dzfi,visc,u,dudt)
+  subroutine momx_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
     real(rp), intent(in) :: visc
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u
     real(rp), dimension( :, :, :), intent(inout) :: dudt
     real(rp) :: dudxp,dudxm,dudyp,dudym,dudzp,dudzm
@@ -253,26 +266,25 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dudxp = (u(i+1,j,k)-u(i,j,k))*dxi
-          dudxm = (u(i,j,k)-u(i-1,j,k))*dxi
-          dudyp = (u(i,j+1,k)-u(i,j,k))*dyi
-          dudym = (u(i,j,k)-u(i,j-1,k))*dyi
+          dudxp = (u(i+1,j,k)-u(i,j,k))*dxfi(i+1)
+          dudxm = (u(i,j,k)-u(i-1,j,k))*dxfi(i  )
+          dudyp = (u(i,j+1,k)-u(i,j,k))*dyci(j  )
+          dudym = (u(i,j,k)-u(i,j-1,k))*dyci(j-1)
           dudzp = (u(i,j,k+1)-u(i,j,k))*dzci(k  )
           dudzm = (u(i,j,k)-u(i,j,k-1))*dzci(k-1)
           dudt(i,j,k) = dudt(i,j,k) + &
-                        (dudxp-dudxm)*visc*dxi + &
-                        (dudyp-dudym)*visc*dyi + &
+                        (dudxp-dudxm)*visc*dxci(i) + &
+                        (dudyp-dudym)*visc*dyfi(j) + &
                         (dudzp-dudzm)*visc*dzfi(k)
         end do
       end do
     end do
   end subroutine momx_d
   !
-  subroutine momy_d(nx,ny,nz,dxi,dyi,dzci,dzfi,visc,v,dvdt)
+  subroutine momy_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in   ) :: v
     real(rp), dimension( :, :, :), intent(inout) :: dvdt
@@ -284,26 +296,25 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dvdxp = (v(i+1,j,k)-v(i,j,k))*dxi
-          dvdxm = (v(i,j,k)-v(i-1,j,k))*dxi
-          dvdyp = (v(i,j+1,k)-v(i,j,k))*dyi
-          dvdym = (v(i,j,k)-v(i,j-1,k))*dyi
+          dvdxp = (v(i+1,j,k)-v(i,j,k))*dxci(i  )
+          dvdxm = (v(i,j,k)-v(i-1,j,k))*dxci(i-1)
+          dvdyp = (v(i,j+1,k)-v(i,j,k))*dyfi(j+1)
+          dvdym = (v(i,j,k)-v(i,j-1,k))*dyfi(j  )
           dvdzp = (v(i,j,k+1)-v(i,j,k))*dzci(k  )
           dvdzm = (v(i,j,k)-v(i,j,k-1))*dzci(k-1)
           dvdt(i,j,k) = dvdt(i,j,k) + &
-                        (dvdxp-dvdxm)*visc*dxi + &
-                        (dvdyp-dvdym)*visc*dyi + &
+                        (dvdxp-dvdxm)*visc*dxfi(i) + &
+                        (dvdyp-dvdym)*visc*dyci(j) + &
                         (dvdzp-dvdzm)*visc*dzfi(k)
         end do
       end do
     end do
   end subroutine momy_d
   !
-  subroutine momz_d(nx,ny,nz,dxi,dyi,dzci,dzfi,visc,w,dwdt)
+  subroutine momz_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in   ) :: w
     real(rp), dimension( :, :, :), intent(inout) :: dwdt
@@ -315,25 +326,25 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dwdxp = (w(i+1,j,k)-w(i,j,k))*dxi
-          dwdxm = (w(i,j,k)-w(i-1,j,k))*dxi
-          dwdyp = (w(i,j+1,k)-w(i,j,k))*dyi
-          dwdym = (w(i,j,k)-w(i,j-1,k))*dyi
+          dwdxp = (w(i+1,j,k)-w(i,j,k))*dxci(i  )
+          dwdxm = (w(i,j,k)-w(i-1,j,k))*dxci(i-1)
+          dwdyp = (w(i,j+1,k)-w(i,j,k))*dyci(j  )
+          dwdym = (w(i,j,k)-w(i,j-1,k))*dyci(j-1)
           dwdzp = (w(i,j,k+1)-w(i,j,k))*dzfi(k+1)
           dwdzm = (w(i,j,k)-w(i,j,k-1))*dzfi(k  )
           dwdt(i,j,k) = dwdt(i,j,k) + &
-                        (dwdxp-dwdxm)*visc*dxi + &
-                        (dwdyp-dwdym)*visc*dyi + &
+                        (dwdxp-dwdxm)*visc*dxfi(i) + &
+                        (dwdyp-dwdym)*visc*dyfi(j) + &
                         (dwdzp-dwdzm)*visc*dzci(k)
         end do
       end do
     end do
   end subroutine momz_d
   !
-  subroutine momx_p(nx,ny,nz,dxi,bforce,p,dudt)
+  subroutine momx_p(nx,ny,nz,dxci,bforce,p,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi
+    real(rp), intent(in), dimension(0:) :: dxci
     real(rp), intent(in) :: bforce
     real(rp), dimension(0:,0:,0:), intent(in ) :: p
     real(rp), dimension( :, :, :), intent(out) :: dudt
@@ -344,16 +355,16 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dudt(i,j,k) = - dxi*( p(i+1,j,k)-p(i,j,k) ) + bforce
+          dudt(i,j,k) = - dxci(i)*( p(i+1,j,k)-p(i,j,k) ) + bforce
         end do
       end do
     end do
   end subroutine momx_p
   !
-  subroutine momy_p(nx,ny,nz,dyi,bforce,p,dvdt)
+  subroutine momy_p(nx,ny,nz,dyci,bforce,p,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dyi
+    real(rp), intent(in), dimension(0:) :: dyci
     real(rp), intent(in) :: bforce
     real(rp), dimension(0:,0:,0:), intent(in ) :: p
     real(rp), dimension( :, :, :), intent(out) :: dvdt
@@ -364,7 +375,7 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dvdt(i,j,k) = - dyi*( p(i,j+1,k)-p(i,j,k) ) + bforce
+          dvdt(i,j,k) = - dyci(j)*( p(i,j+1,k)-p(i,j,k) ) + bforce
         end do
       end do
     end do
@@ -462,10 +473,11 @@ module mod_mom
     end do
   end subroutine momz_d_z
   !
-  subroutine momx_d_xy(nx,ny,nz,dxi,dyi,visc,u,dudt)
+  subroutine momx_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi,visc
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in   ) :: u
     real(rp), dimension( :, :, :), intent(inout) :: dudt
     real(rp) :: dudxp,dudxm,dudyp,dudym
@@ -476,22 +488,23 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dudxp = (u(i+1,j,k)-u(i,j,k))*dxi
-          dudxm = (u(i,j,k)-u(i-1,j,k))*dxi
-          dudyp = (u(i,j+1,k)-u(i,j,k))*dyi
-          dudym = (u(i,j,k)-u(i,j-1,k))*dyi
+          dudxp = (u(i+1,j,k)-u(i,j,k))*dxfi(i+1)
+          dudxm = (u(i,j,k)-u(i-1,j,k))*dxfi(i  )
+          dudyp = (u(i,j+1,k)-u(i,j,k))*dyci(j  )
+          dudym = (u(i,j,k)-u(i,j-1,k))*dyci(j-1)
           dudt(i,j,k) = dudt(i,j,k) + &
-                        (dudxp-dudxm)*visc*dxi + &
-                        (dudyp-dudym)*visc*dyi
+                        (dudxp-dudxm)*visc*dxci(i) + &
+                        (dudyp-dudym)*visc*dyfi(j)
         end do
       end do
     end do
   end subroutine momx_d_xy
   !
-  subroutine momy_d_xy(nx,ny,nz,dxi,dyi,visc,v,dvdt)
+  subroutine momy_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi,visc
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in   ) :: v
     real(rp), dimension( :, :, :), intent(inout) :: dvdt
     real(rp) :: dvdxp,dvdxm,dvdyp,dvdym
@@ -502,22 +515,23 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dvdxp = (v(i+1,j,k)-v(i,j,k))*dxi
-          dvdxm = (v(i,j,k)-v(i-1,j,k))*dxi
-          dvdyp = (v(i,j+1,k)-v(i,j,k))*dyi
-          dvdym = (v(i,j,k)-v(i,j-1,k))*dyi
+          dvdxp = (v(i+1,j,k)-v(i,j,k))*dxci(i  )
+          dvdxm = (v(i,j,k)-v(i-1,j,k))*dxci(i-1)
+          dvdyp = (v(i,j+1,k)-v(i,j,k))*dyfi(j+1)
+          dvdym = (v(i,j,k)-v(i,j-1,k))*dyfi(j  )
           dvdt(i,j,k) = dvdt(i,j,k) + &
-                        (dvdxp-dvdxm)*visc*dxi + &
-                        (dvdyp-dvdym)*visc*dyi
+                        (dvdxp-dvdxm)*visc*dxfi(i) + &
+                        (dvdyp-dvdym)*visc*dyci(j)
         end do
       end do
     end do
   end subroutine momy_d_xy
   !
-  subroutine momz_d_xy(nx,ny,nz,dxi,dyi,visc,w,dwdt)
+  subroutine momz_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in) :: dxi,dyi,visc
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    real(rp), intent(in) :: visc
     real(rp), dimension(0:,0:,0:), intent(in   ) :: w
     real(rp), dimension( :, :, :), intent(inout) :: dwdt
     integer :: i,j,k
@@ -528,26 +542,26 @@ module mod_mom
     do k=1,nz
       do j=1,ny
         do i=1,nx
-          dwdxp = (w(i+1,j,k)-w(i,j,k))*dxi
-          dwdxm = (w(i,j,k)-w(i-1,j,k))*dxi
-          dwdyp = (w(i,j+1,k)-w(i,j,k))*dyi
-          dwdym = (w(i,j,k)-w(i,j-1,k))*dyi
+          dwdxp = (w(i+1,j,k)-w(i,j,k))*dxci(i  )
+          dwdxm = (w(i,j,k)-w(i-1,j,k))*dxci(i-1)
+          dwdyp = (w(i,j+1,k)-w(i,j,k))*dyci(j  )
+          dwdym = (w(i,j,k)-w(i,j-1,k))*dyci(j-1)
           dwdt(i,j,k) = dwdt(i,j,k) + &
-                        (dwdxp-dwdxm)*visc*dxi + &
-                        (dwdyp-dwdym)*visc*dyi
+                        (dwdxp-dwdxm)*visc*dxfi(i) + &
+                        (dwdyp-dwdym)*visc*dyfi(j)
         end do
       end do
     end do
   end subroutine momz_d_xy
   !
-  subroutine cmpt_wallshear(n,is_cmpt,is_bound,l,dli,dzci,dzfi,visc,u,v,w,taux,tauy,tauz)
+  subroutine cmpt_wallshear(n,is_cmpt,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,taux,tauy,tauz)
     use mod_param, only: cbcpre
     implicit none
     integer , intent(in ), dimension(3) :: n
     logical , intent(in ), dimension(    3) :: is_cmpt
     logical , intent(in ), dimension(0:1,3) :: is_bound
-    real(rp), intent(in ), dimension(3)     :: l,dli
-    real(rp), intent(in ), dimension(0:)    :: dzci,dzfi
+    real(rp), intent(in ), dimension(3)     :: l
+    real(rp), intent(in ), dimension(0:)    :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in )                   :: visc
     real(rp), intent(in ), dimension(0:,0:,0:) :: u,v,w
     real(rp), intent(out), dimension(0:1,3) :: taux,tauy,tauz
@@ -562,11 +576,10 @@ module mod_mom
     real(rp) :: tau21p,tau31p,tau12p,tau32p,tau13p,tau23p, &
                 tau21m,tau31m,tau12m,tau32m,tau13m,tau23m
     integer :: i,j,k,nx,ny,nz
-    real(rp) :: dxi,dyi,lx,ly,lz
+    real(rp) :: lx,ly,lz
     real(rp) :: tau(0:1,3,3)
     !
     nx = n(1); ny = n(2); nz = n(3)
-    dxi = dli(1); dyi = dli(2)
     lx = l(1); ly = l(2); lz = l(3)
     tau21p = 0.; tau21m = 0.
     tau31p = 0.; tau31m = 0.
@@ -577,8 +590,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudyp) reduction(+:tau21p)
         do k=1,nz
           do i=1,nx
-            dudyp  = (u(i,1 ,k)-u(i,0   ,k))*dyi*visc
-            tau21p = tau21p + dudyp/(dxi*dzfi(k)*lx*lz)
+            dudyp  = (u(i,1 ,k)-u(i,0   ,k))*dyci(0)*visc
+            tau21p = tau21p + dudyp/(dxfi(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -587,8 +600,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudym) reduction(+:tau21m)
         do k=1,nz
           do i=1,nx
-            dudym  = (u(i,ny,k)-u(i,ny+1,k))*dyi*visc
-            tau21m = tau21m + dudym/(dxi*dzfi(k)*lx*lz)
+            dudym  = (u(i,ny,k)-u(i,ny+1,k))*dyci(ny)*visc
+            tau21m = tau21m + dudym/(dxfi(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -598,7 +611,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dudzp  = (u(i,j,1 )-u(i,j,0   ))*dzci(0)*visc
-            tau31p = tau31p + dudzp/(dxi*dyi*lx*ly)
+            tau31p = tau31p + dudzp/(dxfi(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -608,7 +621,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dudzm  = (u(i,j,nz)-u(i,j,nz+1))*dzci(nz)*visc
-            tau31m = tau31m + dudzm/(dxi*dyi*lx*ly)
+            tau31m = tau31m + dudzm/(dxfi(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -624,8 +637,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdxp) reduction(+:tau12p)
         do k=1,nz
           do j=1,ny
-            dvdxp  = (v(1  ,j,k)-v(0  ,j,k))*dxi*visc
-            tau12p = tau12p + dvdxp/(dyi*dzfi(k)*ly*lz)
+            dvdxp  = (v(1  ,j,k)-v(0  ,j,k))*dxci(0)*visc
+            tau12p = tau12p + dvdxp/(dyfi(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -634,8 +647,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdxm) reduction(+:tau12m)
         do k=1,nz
           do j=1,ny
-            dvdxm  = (v(nx,j,k)-v(nx+1,j,k))*dxi*visc
-            tau12m = tau12m + dvdxm/(dyi*dzfi(k)*ly*lz)
+            dvdxm  = (v(nx,j,k)-v(nx+1,j,k))*dxci(nx)*visc
+            tau12m = tau12m + dvdxm/(dyfi(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -645,7 +658,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dvdzp  = (v(i,j,1 )-v(i,j,0   ))*dzci(0)*visc
-            tau32p = tau32p + dvdzp/(dxi*dyi*lx*ly)
+            tau32p = tau32p + dvdzp/(dxfi(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -655,7 +668,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dvdzm  = (v(i,j,nz)-v(i,j,nz+1))*dzci(nz)*visc
-            tau32m = tau32m + dvdzm/(dxi*dyi*lx*ly)
+            tau32m = tau32m + dvdzm/(dxfi(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -671,8 +684,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdxp) reduction(+:tau13p)
         do k=1,nz
           do j=1,ny
-            dwdxp  = (w(1 ,j,k)-w(0   ,j,k))*dxi*visc
-            tau13p = tau13p + dwdxp/(dyi*dzfi(k)*ly*lz)
+            dwdxp  = (w(1 ,j,k)-w(0   ,j,k))*dxci(0)*visc
+            tau13p = tau13p + dwdxp/(dyfi(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -681,8 +694,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdxm) reduction(+:tau13m)
         do k=1,nz
           do j=1,ny
-            dwdxm  = (w(nx,j,k)-w(nx+1,j,k))*dxi*visc
-            tau13m = tau13m + dwdxm/(dyi*dzfi(k)*ly*lz)
+            dwdxm  = (w(nx,j,k)-w(nx+1,j,k))*dxci(nx)*visc
+            tau13m = tau13m + dwdxm/(dyfi(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -691,8 +704,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdyp) reduction(+:tau23p)
         do k=1,nz
           do i=1,nx
-            dwdyp  = (w(i,1,k )-w(i,0   ,k))*dyi*visc
-            tau23p = tau23p + dwdyp/(dxi*dzfi(k)*lx*lz)
+            dwdyp  = (w(i,1,k )-w(i,0   ,k))*dyci(0)*visc
+            tau23p = tau23p + dwdyp/(dxfi(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -701,8 +714,8 @@ module mod_mom
         !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdym) reduction(+:tau23m)
         do k=1,nz
           do i=1,nx
-            dwdym  = (w(i,ny,k)-w(i,ny+1,k))*dyi*visc
-            tau23m = tau23m + dwdym/(dxi*dzfi(k)*lx*lz)
+            dwdym  = (w(i,ny,k)-w(i,ny+1,k))*dyci(ny)*visc
+            tau23m = tau23m + dwdym/(dxfi(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -768,15 +781,15 @@ module mod_mom
     end if
   end subroutine bulk_forcing
   !
-  subroutine mom_xyz_ad(nx,ny,nz,dxi,dyi,dzci,dzfi,visc,u,v,w,dudt,dvdt,dwdt,dudtd,dvdtd,dwdtd)
+  subroutine mom_xyz_ad(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
+                        dudt,dvdt,dwdt,dudtd,dvdtd,dwdtd)
     use mod_param, only: is_impdiff,is_impdiff_1d
     !
     ! lump all r.h.s. of momentum terms (excluding pressure) into a single fast kernel
     !
     implicit none
     integer , intent(in   ) :: nx,ny,nz
-    real(rp), intent(in   ) :: dxi,dyi
-    real(rp), intent(in   ), dimension(0:) :: dzci,dzfi
+    real(rp), intent(in   ), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in   ) :: visc
     real(rp), intent(in   ), dimension(0:,0:,0:) :: u,v,w
     real(rp), intent(inout), dimension( :, :, :) :: dudt,dvdt,dwdt
@@ -796,8 +809,26 @@ module mod_mom
                 dudtd_xy_s,dudtd_z_s   , &
                 dvdtd_xy_s,dvdtd_z_s   , &
                 dwdtd_xy_s,dwdtd_z_s
-    real(rp), allocatable, dimension(:), save :: rdzm,rdzp
+    real(rp), allocatable, dimension(:), save :: rdxm,rdxp,rdym,rdyp,rdzm,rdzp
     !
+    if(.not.allocated(rdxm) .and. .not.allocated(rdxp)) then
+      allocate(rdxm, mold = dxci)
+      allocate(rdxp, mold = dxci)
+      do i=1,nx
+        rdxm(i) = dxci(i)/dxfi(i  )
+        rdxp(i) = dxci(i)/dxfi(i+1)
+      end do
+      !$acc enter data copyin(rdxm,rdxp) async(1)
+    end if
+    if(.not.allocated(rdym) .and. .not.allocated(rdyp)) then
+      allocate(rdym, mold = dyci)
+      allocate(rdyp, mold = dyci)
+      do j=1,ny
+        rdym(j) = dyci(j)/dyfi(j  )
+        rdyp(j) = dyci(j)/dyfi(j+1)
+      end do
+      !$acc enter data copyin(rdym,rdyp) async(1)
+    end if
     if(.not.allocated(rdzm) .and. .not.allocated(rdzp)) then
       allocate(rdzm, mold = dzci)
       allocate(rdzp, mold = dzci)
@@ -888,10 +919,10 @@ module mod_mom
           !
           ! x diffusion
           !
-          dudxp = (u_pcc-u_ccc)*dxi
-          dudxm = (u_ccc-u_mcc)*dxi
-          dudyp = (u_cpc-u_ccc)*dyi
-          dudym = (u_ccc-u_cmc)*dyi
+          dudxp = (u_pcc-u_ccc)*dxfi(i+1)
+          dudxm = (u_ccc-u_mcc)*dxfi(i  )
+          dudyp = (u_cpc-u_ccc)*dyci(j  )
+          dudym = (u_ccc-u_cmc)*dyci(j-1)
           dudzp = (u_ccp-u_ccc)*dzci(k  )
           dudzm = (u_ccc-u_ccm)*dzci(k-1)
           !
@@ -905,27 +936,27 @@ module mod_mom
           !wukm = 0.25*(w_ccm+w_pcm)*(u_ccc+u_ccm)
           uuip = 0.25*(u_ccc+u_pcc)*u_pcc
           uuim = 0.25*(u_ccc+u_mcc)*u_mcc
-          vujp = 0.25*(v_ccc+v_pcc)*u_cpc
-          vujm = 0.25*(v_cmc+v_pmc)*u_cmc
-          wukp = 0.25*(w_ccc+w_pcc)*u_ccp
-          wukm = 0.25*(w_ccm+w_pcm)*u_ccm
+          vujp = 0.25*(rdxm(i)*v_ccc+rdxp(i)*v_pcc)*u_cpc
+          vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
+          wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
+          wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
           !
           dudtd_xy_s = &
-                         visc*(dudxp-dudxm)*dxi + &
-                         visc*(dudyp-dudym)*dyi
+                         visc*(dudxp-dudxm)*dxci(i) + &
+                         visc*(dudyp-dudym)*dyfi(j)
           dudtd_z_s  = &
                          visc*(dudzp-dudzm)*dzfi(k)
           dudt_s     = &
-                             -(uuip-uuim)*dxi - &
-                              (vujp-vujm)*dyi - &
+                             -(uuip-uuim)*dxci(i) - &
+                              (vujp-vujm)*dyfi(j) - &
                               (wukp-wukm)*dzfi(k)
           !
           ! y diffusion
           !
-          dvdxp = (v_pcc-v_ccc)*dxi
-          dvdxm = (v_ccc-v_mcc)*dxi
-          dvdyp = (v_cpc-v_ccc)*dyi
-          dvdym = (v_ccc-v_cmc)*dyi
+          dvdxp = (v_pcc-v_ccc)*dxci(i  )
+          dvdxm = (v_ccc-v_mcc)*dxci(i-1)
+          dvdyp = (v_cpc-v_ccc)*dyfi(j+1)
+          dvdym = (v_ccc-v_cmc)*dyfi(j  )
           dvdzp = (v_ccp-v_ccc)*dzci(k  )
           dvdzm = (v_ccc-v_ccm)*dzci(k-1)
           !
@@ -937,29 +968,29 @@ module mod_mom
           !vvjm = 0.25*(v_ccc+v_cmc)*(v_ccc+v_cmc)
           !wvkp = 0.25*(w_ccc+w_cpc)*(v_ccc+v_ccp)
           !wvkm = 0.25*(w_ccm+w_cpm)*(v_ccc+v_ccm)
-          uvip = 0.25*(u_ccc+u_cpc)*v_pcc
-          uvim = 0.25*(u_mcc+u_mpc)*v_mcc
+          uvip = 0.25*(rdym(j)*u_ccc+rdyp(j)*u_cpc)*v_pcc
+          uvim = 0.25*(rdym(j)*u_mcc+rdyp(j)*u_mpc)*v_mcc
           vvjp = 0.25*(v_ccc+v_cpc)*v_cpc
           vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
-          wvkp = 0.25*(w_ccc+w_cpc)*v_ccp
-          wvkm = 0.25*(w_ccm+w_cpm)*v_ccm
+          wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
+          wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
           !
           dvdtd_xy_s = &
-                         visc*(dvdxp-dvdxm)*dxi + &
-                         visc*(dvdyp-dvdym)*dyi
+                         visc*(dvdxp-dvdxm)*dxfi(i) + &
+                         visc*(dvdyp-dvdym)*dyci(j)
           dvdtd_z_s  = &
                          visc*(dvdzp-dvdzm)*dzfi(k)
           dvdt_s     = &
-                             -(uvip-uvim)*dxi - &
-                              (vvjp-vvjm)*dyi - &
+                             -(uvip-uvim)*dxfi(i) - &
+                              (vvjp-vvjm)*dyci(j) - &
                               (wvkp-wvkm)*dzfi(k)
           !
           ! z diffusion
           !
-          dwdxp = (w_pcc-w_ccc)*dxi
-          dwdxm = (w_ccc-w_mcc)*dxi
-          dwdyp = (w_cpc-w_ccc)*dyi
-          dwdym = (w_ccc-w_cmc)*dyi
+          dwdxp = (w_pcc-w_ccc)*dxci(i  )
+          dwdxm = (w_ccc-w_mcc)*dxci(i-1)
+          dwdyp = (w_cpc-w_ccc)*dyci(j  )
+          dwdym = (w_ccc-w_cmc)*dyci(j-1)
           dwdzp = (w_ccp-w_ccc)*dzfi(k+1)
           dwdzm = (w_ccc-w_ccm)*dzfi(k  )
           !
@@ -979,13 +1010,13 @@ module mod_mom
           wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
           !
           dwdtd_xy_s =  &
-                          visc*(dwdxp-dwdxm)*dxi + &
-                          visc*(dwdyp-dwdym)*dyi
+                          visc*(dwdxp-dwdxm)*dxfi(i) + &
+                          visc*(dwdyp-dwdym)*dyfi(j)
           dwdtd_z_s =   &
                           visc*(dwdzp-dwdzm)*dzci(k)
           dwdt_s     =  &
-                              -(uwip-uwim)*dxi - &
-                               (vwjp-vwjm)*dyi - &
+                              -(uwip-uwim)*dxfi(i) - &
+                               (vwjp-vwjm)*dyfi(j) - &
                                (wwkp-wwkm)*dzci(k)
           if(is_impdiff) then
             if(is_impdiff_1d) then
@@ -1091,11 +1122,11 @@ module mod_mom
             w_cmp = w(i  ,j-1,k+1)
             w_mcp = w(i-1,j  ,k+1)
             w_ccp = w(i  ,j  ,k+1)
-            dudxp = (u_pcc-u_ccc)*dxi
-            dudxm = (u_ccc-u_mcc)*dxi
-            dudyp = (u_cpc-u_ccc)*dyi
-            dudym = (u_ccc-u_cmc)*dyi
-            dudzp = (u_ccp-u_ccc)*dzci(k)
+            dudxp = (u_pcc-u_ccc)*dxfi(i+1)
+            dudxm = (u_ccc-u_mcc)*dxfi(i  )
+            dudyp = (u_cpc-u_ccc)*dyci(j  )
+            dudym = (u_ccc-u_cmc)*dyci(j-1)
+            dudzp = (u_ccp-u_ccc)*dzci(k  )
             dudzm = (u_ccc-u_ccm)*dzci(k-1)
             !uuip = 0.25*(u_ccc+u_pcc)*(u_ccc+u_pcc)
             !uuim = 0.25*(u_ccc+u_mcc)*(u_ccc+u_mcc)
@@ -1105,18 +1136,18 @@ module mod_mom
             !wukm = 0.25*(w_ccm+w_pcm)*(u_ccc+u_ccm)
             uuip = 0.25*(u_ccc+u_pcc)*u_pcc
             uuim = 0.25*(u_ccc+u_mcc)*u_mcc
-            vujp = 0.25*(v_ccc+v_pcc)*u_cpc
-            vujm = 0.25*(v_cmc+v_pmc)*u_cmc
-            wukp = 0.25*(w_ccc+w_pcc)*u_ccp
-            wukm = 0.25*(w_ccm+w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxi + visc*(dudyp-dudym)*dyi
+            vujp = 0.25*(rdxm(i)*v_ccc+rdxp(i)*v_pcc)*u_cpc
+            vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
+            wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
+            wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
+            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
-            dudt_s     = -(uuip-uuim)*dxi - (vujp-vujm)*dyi - (wukp-wukm)*dzfi(k)
-            dvdxp = (v_pcc-v_ccc)*dxi
-            dvdxm = (v_ccc-v_mcc)*dxi
-            dvdyp = (v_cpc-v_ccc)*dyi
-            dvdym = (v_ccc-v_cmc)*dyi
-            dvdzp = (v_ccp-v_ccc)*dzci(k)
+            dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
+            dvdxp = (v_pcc-v_ccc)*dxci(i  )
+            dvdxm = (v_ccc-v_mcc)*dxci(i-1)
+            dvdyp = (v_cpc-v_ccc)*dyfi(j+1)
+            dvdym = (v_ccc-v_cmc)*dyfi(j  )
+            dvdzp = (v_ccp-v_ccc)*dzci(k  )
             dvdzm = (v_ccc-v_ccm)*dzci(k-1)
             !uvip = 0.25*(u_ccc+u_cpc)*(v_ccc+v_pcc)
             !uvim = 0.25*(u_mcc+u_mpc)*(v_ccc+v_mcc)
@@ -1124,21 +1155,21 @@ module mod_mom
             !vvjm = 0.25*(v_ccc+v_cmc)*(v_ccc+v_cmc)
             !wvkp = 0.25*(w_ccc+w_cpc)*(v_ccc+v_ccp)
             !wvkm = 0.25*(w_ccm+w_cpm)*(v_ccc+v_ccm)
-            uvip = 0.25*(u_ccc+u_cpc)*v_pcc
-            uvim = 0.25*(u_mcc+u_mpc)*v_mcc
+            uvip = 0.25*(rdym(j)*u_ccc+rdyp(j)*u_cpc)*v_pcc
+            uvim = 0.25*(rdym(j)*u_mcc+rdyp(j)*u_mpc)*v_mcc
             vvjp = 0.25*(v_ccc+v_cpc)*v_cpc
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
-            wvkp = 0.25*(w_ccc+w_cpc)*v_ccp
-            wvkm = 0.25*(w_ccm+w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxi + visc*(dvdyp-dvdym)*dyi
+            wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
+            wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
+            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
-            dvdt_s     = -(uvip-uvim)*dxi - (vvjp-vvjm)*dyi - (wvkp-wvkm)*dzfi(k)
-            dwdxp = (w_pcc-w_ccc)*dxi
-            dwdxm = (w_ccc-w_mcc)*dxi
-            dwdyp = (w_cpc-w_ccc)*dyi
-            dwdym = (w_ccc-w_cmc)*dyi
+            dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
+            dwdxp = (w_pcc-w_ccc)*dxci(i  )
+            dwdxm = (w_ccc-w_mcc)*dxci(i-1)
+            dwdyp = (w_cpc-w_ccc)*dyci(j  )
+            dwdym = (w_ccc-w_cmc)*dyci(j-1)
             dwdzp = (w_ccp-w_ccc)*dzfi(k+1)
-            dwdzm = (w_ccc-w_ccm)*dzfi(k)
+            dwdzm = (w_ccc-w_ccm)*dzfi(k  )
             !uwip = 0.25*(u_ccc+u_ccp)*(w_ccc+w_pcc)
             !uwim = 0.25*(u_mcc+u_mcp)*(w_ccc+w_mcc)
             !vwjp = 0.25*(v_ccc+v_ccp)*(w_ccc+w_cpc)
@@ -1151,9 +1182,9 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxi + visc*(dwdyp-dwdym)*dyi
+            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
-            dwdt_s     = -(uwip-uwim)*dxi - (vwjp-vwjm)*dyi - (wwkp-wwkm)*dzci(k)
+            dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
             dudt_s = dudt_s + dudtd_xy_s + dudtd_z_s
             dvdt_s = dvdt_s + dvdtd_xy_s + dvdtd_z_s
             dwdt_s = dwdt_s + dwdtd_xy_s + dwdtd_z_s
@@ -1236,11 +1267,11 @@ module mod_mom
             w_cmp = w(i  ,j-1,k+1)
             w_mcp = w(i-1,j  ,k+1)
             w_ccp = w(i  ,j  ,k+1)
-            dudxp = (u_pcc-u_ccc)*dxi
-            dudxm = (u_ccc-u_mcc)*dxi
-            dudyp = (u_cpc-u_ccc)*dyi
-            dudym = (u_ccc-u_cmc)*dyi
-            dudzp = (u_ccp-u_ccc)*dzci(k)
+            dudxp = (u_pcc-u_ccc)*dxfi(i+1)
+            dudxm = (u_ccc-u_mcc)*dxfi(i  )
+            dudyp = (u_cpc-u_ccc)*dyci(j  )
+            dudym = (u_ccc-u_cmc)*dyci(j-1)
+            dudzp = (u_ccp-u_ccc)*dzci(k  )
             dudzm = (u_ccc-u_ccm)*dzci(k-1)
             !uuip = 0.25*(u_ccc+u_pcc)*(u_ccc+u_pcc)
             !uuim = 0.25*(u_ccc+u_mcc)*(u_ccc+u_mcc)
@@ -1250,18 +1281,18 @@ module mod_mom
             !wukm = 0.25*(w_ccm+w_pcm)*(u_ccc+u_ccm)
             uuip = 0.25*(u_ccc+u_pcc)*u_pcc
             uuim = 0.25*(u_ccc+u_mcc)*u_mcc
-            vujp = 0.25*(v_ccc+v_pcc)*u_cpc
-            vujm = 0.25*(v_cmc+v_pmc)*u_cmc
-            wukp = 0.25*(w_ccc+w_pcc)*u_ccp
-            wukm = 0.25*(w_ccm+w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxi + visc*(dudyp-dudym)*dyi
+            vujp = 0.25*(rdxm(i)*v_ccc+rdxp(i)*v_pcc)*u_cpc
+            vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
+            wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
+            wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
+            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
-            dudt_s     = -(uuip-uuim)*dxi - (vujp-vujm)*dyi - (wukp-wukm)*dzfi(k)
-            dvdxp = (v_pcc-v_ccc)*dxi
-            dvdxm = (v_ccc-v_mcc)*dxi
-            dvdyp = (v_cpc-v_ccc)*dyi
-            dvdym = (v_ccc-v_cmc)*dyi
-            dvdzp = (v_ccp-v_ccc)*dzci(k)
+            dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
+            dvdxp = (v_pcc-v_ccc)*dxci(i  )
+            dvdxm = (v_ccc-v_mcc)*dxci(i-1)
+            dvdyp = (v_cpc-v_ccc)*dyfi(j+1)
+            dvdym = (v_ccc-v_cmc)*dyfi(j  )
+            dvdzp = (v_ccp-v_ccc)*dzci(k  )
             dvdzm = (v_ccc-v_ccm)*dzci(k-1)
             !uvip = 0.25*(u_ccc+u_cpc)*(v_ccc+v_pcc)
             !uvim = 0.25*(u_mcc+u_mpc)*(v_ccc+v_mcc)
@@ -1269,21 +1300,21 @@ module mod_mom
             !vvjm = 0.25*(v_ccc+v_cmc)*(v_ccc+v_cmc)
             !wvkp = 0.25*(w_ccc+w_cpc)*(v_ccc+v_ccp)
             !wvkm = 0.25*(w_ccm+w_cpm)*(v_ccc+v_ccm)
-            uvip = 0.25*(u_ccc+u_cpc)*v_pcc
-            uvim = 0.25*(u_mcc+u_mpc)*v_mcc
+            uvip = 0.25*(rdym(j)*u_ccc+rdyp(j)*u_cpc)*v_pcc
+            uvim = 0.25*(rdym(j)*u_mcc+rdyp(j)*u_mpc)*v_mcc
             vvjp = 0.25*(v_ccc+v_cpc)*v_cpc
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
-            wvkp = 0.25*(w_ccc+w_cpc)*v_ccp
-            wvkm = 0.25*(w_ccm+w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxi + visc*(dvdyp-dvdym)*dyi
+            wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
+            wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
+            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
-            dvdt_s     = -(uvip-uvim)*dxi - (vvjp-vvjm)*dyi - (wvkp-wvkm)*dzfi(k)
-            dwdxp = (w_pcc-w_ccc)*dxi
-            dwdxm = (w_ccc-w_mcc)*dxi
-            dwdyp = (w_cpc-w_ccc)*dyi
-            dwdym = (w_ccc-w_cmc)*dyi
+            dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
+            dwdxp = (w_pcc-w_ccc)*dxci(i  )
+            dwdxm = (w_ccc-w_mcc)*dxci(i-1)
+            dwdyp = (w_cpc-w_ccc)*dyci(j  )
+            dwdym = (w_ccc-w_cmc)*dyci(j-1)
             dwdzp = (w_ccp-w_ccc)*dzfi(k+1)
-            dwdzm = (w_ccc-w_ccm)*dzfi(k)
+            dwdzm = (w_ccc-w_ccm)*dzfi(k  )
             !uwip = 0.25*(u_ccc+u_ccp)*(w_ccc+w_pcc)
             !uwim = 0.25*(u_mcc+u_mcp)*(w_ccc+w_mcc)
             !vwjp = 0.25*(v_ccc+v_ccp)*(w_ccc+w_cpc)
@@ -1296,9 +1327,9 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxi + visc*(dwdyp-dwdym)*dyi
+            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
-            dwdt_s     = -(uwip-uwim)*dxi - (vwjp-vwjm)*dyi - (wwkp-wwkm)*dzci(k)
+            dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
             dudt_s = dudt_s + dudtd_xy_s
             dvdt_s = dvdt_s + dvdtd_xy_s
             dwdt_s = dwdt_s + dwdtd_xy_s
@@ -1387,11 +1418,11 @@ module mod_mom
             w_cmp = w(i  ,j-1,k+1)
             w_mcp = w(i-1,j  ,k+1)
             w_ccp = w(i  ,j  ,k+1)
-            dudxp = (u_pcc-u_ccc)*dxi
-            dudxm = (u_ccc-u_mcc)*dxi
-            dudyp = (u_cpc-u_ccc)*dyi
-            dudym = (u_ccc-u_cmc)*dyi
-            dudzp = (u_ccp-u_ccc)*dzci(k)
+            dudxp = (u_pcc-u_ccc)*dxfi(i+1)
+            dudxm = (u_ccc-u_mcc)*dxfi(i  )
+            dudyp = (u_cpc-u_ccc)*dyci(j  )
+            dudym = (u_ccc-u_cmc)*dyci(j-1)
+            dudzp = (u_ccp-u_ccc)*dzci(k  )
             dudzm = (u_ccc-u_ccm)*dzci(k-1)
             !uuip = 0.25*(u_ccc+u_pcc)*(u_ccc+u_pcc)
             !uuim = 0.25*(u_ccc+u_mcc)*(u_ccc+u_mcc)
@@ -1401,18 +1432,18 @@ module mod_mom
             !wukm = 0.25*(w_ccm+w_pcm)*(u_ccc+u_ccm)
             uuip = 0.25*(u_ccc+u_pcc)*u_pcc
             uuim = 0.25*(u_ccc+u_mcc)*u_mcc
-            vujp = 0.25*(v_ccc+v_pcc)*u_cpc
-            vujm = 0.25*(v_cmc+v_pmc)*u_cmc
-            wukp = 0.25*(w_ccc+w_pcc)*u_ccp
-            wukm = 0.25*(w_ccm+w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxi + visc*(dudyp-dudym)*dyi
+            vujp = 0.25*(rdxm(i)*v_ccc+rdxp(i)*v_pcc)*u_cpc
+            vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
+            wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
+            wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
+            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
-            dudt_s     = -(uuip-uuim)*dxi - (vujp-vujm)*dyi - (wukp-wukm)*dzfi(k)
-            dvdxp = (v_pcc-v_ccc)*dxi
-            dvdxm = (v_ccc-v_mcc)*dxi
-            dvdyp = (v_cpc-v_ccc)*dyi
-            dvdym = (v_ccc-v_cmc)*dyi
-            dvdzp = (v_ccp-v_ccc)*dzci(k)
+            dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
+            dvdxp = (v_pcc-v_ccc)*dxci(i  )
+            dvdxm = (v_ccc-v_mcc)*dxci(i-1)
+            dvdyp = (v_cpc-v_ccc)*dyfi(j+1)
+            dvdym = (v_ccc-v_cmc)*dyfi(j  )
+            dvdzp = (v_ccp-v_ccc)*dzci(k  )
             dvdzm = (v_ccc-v_ccm)*dzci(k-1)
             !uvip = 0.25*(u_ccc+u_cpc)*(v_ccc+v_pcc)
             !uvim = 0.25*(u_mcc+u_mpc)*(v_ccc+v_mcc)
@@ -1420,21 +1451,21 @@ module mod_mom
             !vvjm = 0.25*(v_ccc+v_cmc)*(v_ccc+v_cmc)
             !wvkp = 0.25*(w_ccc+w_cpc)*(v_ccc+v_ccp)
             !wvkm = 0.25*(w_ccm+w_cpm)*(v_ccc+v_ccm)
-            uvip = 0.25*(u_ccc+u_cpc)*v_pcc
-            uvim = 0.25*(u_mcc+u_mpc)*v_mcc
+            uvip = 0.25*(rdym(j)*u_ccc+rdyp(j)*u_cpc)*v_pcc
+            uvim = 0.25*(rdym(j)*u_mcc+rdyp(j)*u_mpc)*v_mcc
             vvjp = 0.25*(v_ccc+v_cpc)*v_cpc
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
-            wvkp = 0.25*(w_ccc+w_cpc)*v_ccp
-            wvkm = 0.25*(w_ccm+w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxi + visc*(dvdyp-dvdym)*dyi
+            wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
+            wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
+            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
-            dvdt_s     = -(uvip-uvim)*dxi - (vvjp-vvjm)*dyi - (wvkp-wvkm)*dzfi(k)
-            dwdxp = (w_pcc-w_ccc)*dxi
-            dwdxm = (w_ccc-w_mcc)*dxi
-            dwdyp = (w_cpc-w_ccc)*dyi
-            dwdym = (w_ccc-w_cmc)*dyi
+            dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
+            dwdxp = (w_pcc-w_ccc)*dxci(i  )
+            dwdxm = (w_ccc-w_mcc)*dxci(i-1)
+            dwdyp = (w_cpc-w_ccc)*dyci(j  )
+            dwdym = (w_ccc-w_cmc)*dyci(j-1)
             dwdzp = (w_ccp-w_ccc)*dzfi(k+1)
-            dwdzm = (w_ccc-w_ccm)*dzfi(k)
+            dwdzm = (w_ccc-w_ccm)*dzfi(k  )
             !uwip = 0.25*(u_ccc+u_ccp)*(w_ccc+w_pcc)
             !uwim = 0.25*(u_mcc+u_mcp)*(w_ccc+w_mcc)
             !vwjp = 0.25*(v_ccc+v_ccp)*(w_ccc+w_cpc)
@@ -1447,9 +1478,9 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxi + visc*(dwdyp-dwdym)*dyi
+            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
-            dwdt_s     = -(uwip-uwim)*dxi - (vwjp-vwjm)*dyi - (wwkp-wwkm)*dzci(k)
+            dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
             dudtd_s = dudtd_xy_s + dudtd_z_s
             dvdtd_s = dvdtd_xy_s + dvdtd_z_s
             dwdtd_s = dwdtd_xy_s + dwdtd_z_s

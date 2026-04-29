@@ -24,6 +24,7 @@ runs:
         components: |
           ifx
           impi
+          mkl
 
     - name: Install compiler
       shell: bash

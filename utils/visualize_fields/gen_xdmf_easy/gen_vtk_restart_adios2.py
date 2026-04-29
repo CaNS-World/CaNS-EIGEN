@@ -25,16 +25,6 @@ meta_names = {"time","istep","lo","hi","nskip","x","y","z"}
 #
 # helper routines
 #
-def infer_origin_spacing(arr,name):
-    arr = np.asarray(arr,dtype=float)
-    if(arr.size == 0):
-        raise ValueError("empty coordinate array "+name)
-    if(arr.size == 1):
-        return float(arr[0]),1.
-    diff = np.diff(arr)
-    if(not np.allclose(diff,diff[0],rtol=tol_uniform,atol=1.e-12)):
-        raise ValueError("non-uniform coordinate array "+name+" not supported by ImageData")
-    return float(arr[0]),float(diff[0])
 def get_bp_data(bpdir,selected_fields):
     FileReader = getattr(adios2,"FileReader",None)
     if(FileReader):
@@ -71,20 +61,30 @@ def get_bp_data(bpdir,selected_fields):
         engine.EndStep()
         engine.Close()
     return fieldnames,x,y,z
+def infer_origin_spacing(arr,name):
+    arr = np.asarray(arr,dtype=float)
+    if(arr.size == 0):
+        raise ValueError("empty coordinate array "+name)
+    if(arr.size == 1):
+        return float(arr[0]),1.
+    diff = np.diff(arr)
+    if(not np.allclose(diff,diff[0],rtol=tol_uniform,atol=1.e-12)):
+        raise ValueError("non-uniform coordinate array "+name+" not supported by ImageData")
+    return float(arr[0]),float(diff[0])
 def write_vtk(bpdir,fieldnames,x,y,z):
     #
     # ParaView's VTX reader reverses the ADIOS2/Fortran extent into VTK dimensions
     #
-    extent_coordinates = [z,y,x]
+    extent = "{} {} {} {} {} {}".format(0,max(len(z)-1,0),0,max(len(y)-1,0),0,max(len(x)-1,0))
     origin_x,spacing_x = infer_origin_spacing(x,"x")
     origin_y,spacing_y = infer_origin_spacing(y,"y")
     origin_z,spacing_z = infer_origin_spacing(z,"z")
-    extent = "{} {} {} {} {} {}".format(*sum(([0,max(len(coordinate)-1,0)] for coordinate in extent_coordinates),[]))
+    attr = {"WholeExtent":extent,
+            "Origin":"{:0.16E} {:0.16E} {:0.16E}".format(origin_x,origin_y,origin_z),
+            "Spacing":"{:0.16E} {:0.16E} {:0.16E}".format(spacing_x,spacing_y,spacing_z)}
     VTKFile = Element("VTKFile",attrib={"type":"ImageData","version":"0.1","byte_order":"LittleEndian"})
-    image = SubElement(VTKFile,"ImageData",attrib={"WholeExtent":extent, \
-                                                   "Origin":"{:0.16E} {:0.16E} {:0.16E}".format(origin_x,origin_y,origin_z), \
-                                                   "Spacing":"{:0.16E} {:0.16E} {:0.16E}".format(spacing_x,spacing_y,spacing_z)})
-    piece = SubElement(image,"Piece",attrib={"Extent":extent})
+    grid = SubElement(VTKFile,"ImageData",attrib=attr)
+    piece = SubElement(grid,"Piece",attrib={"Extent":extent})
     pointdata = SubElement(piece,"PointData")
     if(len(fieldnames) > 0):
         pointdata.set("Scalars",fieldnames[0])

@@ -12,7 +12,7 @@ def read_restart_file_hdf5(filenamei):
     #
     def split_prefix(filename):
         root, ext = os.path.splitext(filename)
-        if(ext == ".h5"):
+        if(ext in [".h5",".hdf",".hdf5"]):
             for suffix in ["_u","_v","_w","_p"]:
                 if(root.endswith(suffix)):
                     return root[:-len(suffix)]
@@ -20,13 +20,15 @@ def read_restart_file_hdf5(filenamei):
         return filename
     def read_one(filename,fieldname):
         with h5py.File(filename, "r") as hf:
-            fld = np.transpose(np.asarray(hf["fields/"+fieldname]))
+            data = np.transpose(np.asarray(hf["fields/"+fieldname]))
             time = float(np.asarray(hf["meta/time"])[0])
             istep = int(np.asarray(hf["meta/istep"])[0])
-        return fld, time, istep
-    with h5py.File(filenamei, "r") as hf:
-        fieldnames = list(hf["fields"].keys())
-    if(all(fieldname in fieldnames for fieldname in ["u","v","w","p"])):
+        return data, time, istep
+    is_combined = False
+    if(os.path.exists(filenamei)):
+        with h5py.File(filenamei, "r") as hf:
+            is_combined = all("fields/"+fieldname in hf for fieldname in ["u","v","w","p"])
+    if(is_combined):
         with h5py.File(filenamei, "r") as hf:
             u = np.transpose(np.asarray(hf["fields/u"]))
             v = np.transpose(np.asarray(hf["fields/v"]))

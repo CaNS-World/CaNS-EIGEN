@@ -29,6 +29,7 @@ nsaves = np.size(files)
 variables = input("Names of displayed variables [VEX VEY VEZ PRE]: ") or "VEX VEY VEZ PRE"
 variables = variables.split(" ")
 fieldnames = ['u','v','w','p']
+nflds = min(len(variables),len(fieldnames))
 gridname  = input("Name to be appended to the grid files to prevent overwriting [_fld]: ") or "_fld"
 gridfile = "grid"+gridname+'.h5'
 #
@@ -37,14 +38,12 @@ gridfile = "grid"+gridname+'.h5'
 geofile   = "geometry.out"
 data = np.loadtxt(geofile, comments = "!", max_rows = 2)
 ng = data[0,:].astype('int')
-l  = data[1,:]
-dl = l/(1.*ng)
 n  = ng
 def get_split_groups(files):
     groups = {}
     for filename in files:
         root, ext = os.path.splitext(filename)
-        if(ext != ".h5"): continue
+        if(ext not in [".h5",".hdf",".hdf5"]): continue
         for fieldname in fieldnames:
             suffix = "_" + fieldname
             if(root.endswith(suffix)):
@@ -87,19 +86,12 @@ else:
 #
 # create grid files
 #
-x = np.linspace(r0[0]+dl[0]/2.,r0[0]+l[0]-dl[0]/2.,ng[0])
-y = np.linspace(r0[1]+dl[1]/2.,r0[1]+l[1]-dl[1]/2.,ng[1])
-z = np.linspace(r0[2]+dl[2]/2.,r0[2]+l[2]-dl[2]/2.,ng[2])
-if(os.path.exists('grid.h5')):
-    hf = h5py.File('grid.h5','r')
-    z = np.asarray(hf['rc'])
-    hf.close()
-elif(os.path.exists('grid.bin')):
-    f   = open('grid.bin','rb')
-    grid_z = np.fromfile(f,dtype=my_dtype)
-    f.close()
-    grid_z = np.reshape(grid_z,(ng[2],4),order='F')
-    z = r0[2] + grid_z[:,2]
+with h5py.File('grid_x.h5','r') as hf:
+    x = r0[0] + np.asarray(hf["rc"])
+with h5py.File('grid_y.h5','r') as hf:
+    y = r0[1] + np.asarray(hf["rc"])
+with h5py.File('grid_z.h5','r') as hf:
+    z = r0[2] + np.asarray(hf["rc"])
 if os.path.exists(gridfile): os.remove(gridfile)
 hf = h5py.File(gridfile,'w')
 hf.create_dataset('x',data=x.astype(my_dtype))
@@ -126,7 +118,7 @@ for ii in range(nsaves):
     dataitem.text = gridfile + ':/y'
     dataitem = SubElement(geometry, "DataItem", attrib = {"Format": "HDF", "NumberType": "Float", "Precision": "{}".format(iprecision), "Dimensions": "{}".format(n[2])})
     dataitem.text = gridfile + ':/z'
-    for jj in range(min(len(variables),len(fieldnames))):
+    for jj in range(nflds):
         filename = split_groups[ii][1][fieldnames[jj]] if is_split else files[ii]
         attribute = SubElement(grid_fld, "Attribute", attrib = {"Name": "{}".format(variables[jj]), "Center": "Node"})
         dataitem = SubElement(attribute, "DataItem", attrib = {"Format": "HDF", "NumberType": "Float", "Precision": "{}".format(iprecision), "Dimensions": "{} {} {}".format(n[2], n[1], n[0])})

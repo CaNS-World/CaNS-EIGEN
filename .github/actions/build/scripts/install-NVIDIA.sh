@@ -10,7 +10,7 @@
 #
 set -eu
 #
-sudo apt-get install -y --no-install-recommends libfftw3-dev
+sudo apt-get install -y --no-install-recommends libfftw3-dev libblas-dev liblapack-dev
 #
 NVHPC_VERSION_A="${NVHPC_VERSION_A:-${NVHPC_VERSION:-latest}}"
 #

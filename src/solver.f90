@@ -5,33 +5,38 @@
 !
 ! -
 module mod_solver
-  use, intrinsic :: iso_c_binding, only: C_PTR
+  use, intrinsic :: iso_c_binding, only: C_PTR,c_f_pointer,c_loc
   use decomp_2d
-  use mod_fft       , only: fft
-  use mod_param     , only: ipencil_axis,is_poisson_pcr_tdma
+  use mod_fft   , only: fft
+  use mod_param , only: ipencil_axis,is_poisson_pcr_tdma
+  use mod_linalg, only: gemm
   use mod_types
   implicit none
   private
   public solver,solver_gaussel_z
   contains
-  subroutine solver(n,ng,arrplan,normfft,lambdaxy,a,b,c,bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
+  subroutine solver(n,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
+                    bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
     !
     ! note: some of the transposes below are suboptimal in slab decompositions,
     ! as they would be a no-op if done in-place (e.g., `px = py` for xy slabs)
     !
     implicit none
     integer , intent(in), dimension(3) :: n,ng
+    logical , intent(in), dimension(2) :: is_fft
     type(C_PTR), intent(in), dimension(2,2) :: arrplan
     real(rp), intent(in) :: normfft
-    real(rp), intent(in), dimension(:,:) :: lambdaxy
+    real(rp), intent(in), dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp), intent(in), dimension(:) :: a,b,c
     character(len=1), dimension(0:1,3), intent(in) :: bc
     character(len=1), intent(in), dimension(3) :: c_or_f
     real(rp), intent(inout), dimension(0:,0:,0:) :: p
     logical , intent(inout), optional :: is_ptdma_update
     real(rp), intent(inout), dimension(:,:,:), optional :: aa_z,cc_z
-    real(rp), allocatable, dimension(:,:,:) :: px,py,pz
-    integer :: q
+    real(rp), target, allocatable, dimension(:,:,:) :: px,py,pz
+    real(rp), target, allocatable, dimension(:,:,:) :: px_aux,py_aux_1,py_aux_2
+    real(rp), pointer, contiguous, dimension(:,:)   :: px_2d,px_aux_2d,py_aux_1_2d,py_aux_2_2d
+    integer :: q,i,j,k
     logical :: is_periodic_z
     integer, dimension(3) :: n_z,hi_z
     logical :: is_ptdma_update_
@@ -50,6 +55,18 @@ module mod_solver
     allocate(px(xsize(1),xsize(2),xsize(3)))
     allocate(py(ysize(1),ysize(2),ysize(3)))
     allocate(pz(zsize(1),zsize(2),zsize(3)))
+    if(.not.is_fft(1)) then
+      allocate(px_aux(xsize(1),xsize(2),xsize(3)))
+      call c_f_pointer(c_loc(px    ),px_2d    ,[xsize(1),xsize(2)*xsize(3)])
+      call c_f_pointer(c_loc(px_aux),px_aux_2d,[xsize(1),xsize(2)*xsize(3)])
+    end if
+    !
+    if(.not.is_fft(2)) then
+      allocate(py_aux_1(ysize(2),ysize(3),ysize(1)))
+      allocate(py_aux_2(ysize(2),ysize(3),ysize(1)))
+      call c_f_pointer(c_loc(py_aux_1),py_aux_1_2d,[ysize(2),ysize(3)*ysize(1)])
+      call c_f_pointer(c_loc(py_aux_2),py_aux_2_2d,[ysize(2),ysize(3)*ysize(1)])
+    end if
     select case(ipencil_axis)
     case(1)
       !$OMP PARALLEL WORKSHARE
@@ -69,10 +86,39 @@ module mod_solver
       call transpose_y_to_x(py,px)
     end select
     !
-    call fft(arrplan(1,1),px) ! fwd transform in x
+    if(is_fft(1)) then
+      call fft(arrplan(1,1),px) ! fwd transform in x
+    else
+      call gemm('N','N',ng(1),xsize(2)*xsize(3),ng(1),1._rp, &
+                eigvecx_fwd,ng(1),px_2d,ng(1),0._rp,px_aux_2d,ng(1))
+      !$OMP PARALLEL WORKSHARE
+      px(:,:,:) = px_aux(:,:,:)
+      !$OMP END PARALLEL WORKSHARE
+    end if
     !
     call transpose_x_to_y(px,py)
-    call fft(arrplan(1,2),py) ! fwd transform in y
+    if(is_fft(2)) then
+      call fft(arrplan(1,2),py) ! fwd transform in y
+    else
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py_aux_1(j,k,i) = py(i,j,k)
+          end do
+        end do
+      end do
+      call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
+                eigvecy_fwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py(i,j,k) = py_aux_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
     !
     q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.hi_z(3) == ng(3))
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
@@ -86,10 +132,39 @@ module mod_solver
       call gaussel_ptdma(n_z(1),n_z(2),n_z(3)-q,0,a,b,c,is_periodic_z,norm,py,lambdaxy,is_ptdma_update_,aa_z,cc_z)
       if(present(is_ptdma_update)) is_ptdma_update = is_ptdma_update_
     end if
-    call fft(arrplan(2,2),py) ! bwd transform in y
+    if(is_fft(2)) then
+      call fft(arrplan(2,2),py) ! bwd transform in y
+    else
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py_aux_1(j,k,i) = py(i,j,k)
+          end do
+        end do
+      end do
+      call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
+                eigvecy_bwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py(i,j,k) = py_aux_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
     !
     call transpose_y_to_x(py,px)
-    call fft(arrplan(2,1),px) ! bwd transform in x
+    if(is_fft(1)) then
+      call fft(arrplan(2,1),px) ! bwd transform in x
+    else
+      call gemm('N','N',ng(1),xsize(2)*xsize(3),ng(1),1._rp, &
+                eigvecx_bwd,ng(1),px_2d,ng(1),0._rp,px_aux_2d,ng(1))
+      !$OMP PARALLEL WORKSHARE
+      px(:,:,:) = px_aux(:,:,:)
+      !$OMP END PARALLEL WORKSHARE
+    end if
     !
     select case(ipencil_axis)
     case(1)

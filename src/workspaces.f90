@@ -14,24 +14,35 @@ module mod_workspaces
   public init_wspace_arrays,set_cufft_wspace,cudecomp_finalize
 contains
   subroutine init_wspace_arrays
+    use, intrinsic :: iso_c_binding, only: c_null_ptr,c_ptr
     use mod_common_cudecomp, only: handle,gd_halo,gd_poi,gd_poi_io,gd_ptdma, &
                                    ap_x_poi,ap_y_poi,ap_z_poi, &
                                    solver_buf_0,solver_buf_1, &
                                    ap_z,pz_aux_1, &
-                                   istream_acc_queue_1,istream_acc_queue_1_comm_lib
+                                   gemm_buf_x,gemm_buf_y, &
+                                   istream_acc_queue_1,istream_acc_queue_1_comm_lib, &
+                                   gemm_handle
     use mod_fft            , only: wsize_fft,wsize_tmp
-    use mod_param          , only: ng,cudecomp_is_t_in_place,cbcpre,ipencil => ipencil_axis,is_poisson_pcr_tdma, &
+    use mod_param          , only: ng,cudecomp_is_t_in_place,cbcpre,ipencil => ipencil_axis,is_poisson_pcr_tdma,is_poisson_fft, &
                                    is_use_diezdecomp
 #if !defined(_USE_DIEZDECOMP)
     use cudecomp
 #else
     use diezdecomp
 #endif
+#if !defined(_USE_HIP)
+    use cublas
+#else
+    use hipfort_hipblas
+#endif
     use openacc
     implicit none
     integer :: istat
     integer(i8) :: wsize,max_wsize,elem_round
     integer :: nh(3)
+#if defined(_USE_HIP)
+    type(c_ptr) :: istream_hip
+#endif
     !
     ! allocate cuDecomp workspace buffer for transposes (reused for FFTs and other temporaries)
     !
@@ -80,6 +91,14 @@ contains
       allocate(pz_aux_1(ap_z%shape(1),ap_z%shape(2),ap_z%shape(3)))
       !$acc enter data create(pz_aux_1)
     end if
+    if(.not.is_poisson_fft(1)) then
+      allocate(gemm_buf_x(wsize))
+      !$acc enter data create(gemm_buf_x)
+    end if
+    if(.not.is_poisson_fft(2)) then
+      allocate(gemm_buf_y(wsize))
+      !$acc enter data create(gemm_buf_y)
+    end if
     if(is_poisson_pcr_tdma) then
       if(.not.allocated(pz_aux_1)) then
         allocate(pz_aux_1(ap_z%shape(1),ap_z%shape(2),ap_z%shape(3)))
@@ -107,12 +126,20 @@ contains
 #if defined(_USE_DIEZDECOMP)
     istream_acc_queue_1_comm_lib = 1
 #endif
+#if !defined(_USE_HIP)
+    istat = cublasCreate(gemm_handle)
+    istat = cublasSetStream(gemm_handle,istream_acc_queue_1)
+#else
+    istat = hipblasCreate(gemm_handle)
+    istream_hip = transfer(istream_acc_queue_1,c_null_ptr)
+    istat = hipblasSetStream(gemm_handle,istream_hip)
+#endif
   end subroutine init_wspace_arrays
   subroutine set_cufft_wspace(arrplan,istream)
 #if !defined(_USE_HIP)
     use cufft
 #else
-    use, intrinsic :: iso_c_binding, only: C_PTR,c_loc
+    use, intrinsic :: iso_c_binding, only: C_PTR,c_loc,c_associated
     use hipfort_hipfft, only: cufftSetWorkArea => hipfftSetWorkArea_, &
                               cufftSetStream   => hipfftSetStream_
 #endif
@@ -130,6 +157,11 @@ contains
     integer(acc_handle_kind), target, intent(in), optional :: istream
     integer :: istat,i
     do i=1,size(arrplan)
+#if !defined(_USE_HIP)
+      if(arrplan(i) == 0) cycle
+#else
+      if(.not.c_associated(arrplan(i))) cycle
+#endif
       !$acc host_data use_device(work)
 #if !defined(_USE_HIP)
       istat = cufftSetWorkArea(arrplan(i),work(wsize_tmp + 1))

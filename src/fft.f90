@@ -33,7 +33,7 @@ module mod_fft
 #else
     integer    , intent(out), dimension(2,2) :: arrplan
 #endif
-    real(rp), intent(out) :: normfft
+    real(rp), intent(out), dimension(2) :: normfft
     real(rp), dimension(n_x(1),n_x(2),n_x(3))  :: arrx
     real(rp), dimension(n_y(1),n_y(2),n_y(3))  :: arry
 #if !defined(_OPENACC)
@@ -77,7 +77,7 @@ module mod_fft
 #else
     arrplan(:,:) = 0
 #endif
-    normfft = 1.
+    normfft(:) = 1.
 #if defined(_OPENACC)
     max_wsize = 0
 #endif
@@ -144,7 +144,7 @@ module mod_fft
 #endif
       max_wsize = max(wsize,max_wsize)
 #endif
-      normfft = normfft*norm(1)*(ng(1)+norm(2)-ix)
+      normfft(1) = (norm(1)*(ng(1)+norm(2)-ix))**(-1)
       arrplan(1,1) = plan_fwd_x
       arrplan(2,1) = plan_bwd_x
     end if
@@ -208,49 +208,73 @@ module mod_fft
 #endif
       max_wsize = max(wsize,max_wsize)
 #endif
-      normfft = normfft*norm(1)*(ng(2)+norm(2)-iy)
+      normfft(2) = (norm(1)*(ng(2)+norm(2)-iy))**(-1)
       arrplan(1,2) = plan_fwd_y
       arrplan(2,2) = plan_bwd_y
     end if
 #if defined(_OPENACC)
     wsize_fft = max_wsize/f_sizeof(1._rp)
 #endif
-    normfft = normfft**(-1)
   end subroutine fftini
   !
-  subroutine fftend(arrplan)
+  subroutine fftend(arrplan,idir)
     implicit none
 #if !defined(_OPENACC) || defined(_USE_HIP)
-    type(C_PTR), intent(in), dimension(:,:) :: arrplan
+    type(C_PTR), intent(inout), dimension(:,:) :: arrplan
 #else
-    integer    , intent(in), dimension(:,:) :: arrplan
+    integer    , intent(inout), dimension(:,:) :: arrplan
 #endif
-    integer :: i,j
+    integer, intent(in), optional :: idir
+    integer :: i,j,jmin,jmax
+    logical :: is_all
 #if defined(_OPENACC)
     integer :: istat
 #endif
+    is_all = .not.present(idir)
+    if(is_all) then
+      jmin = 1
+      jmax = size(arrplan,2)
+    else
+      if(idir < 1 .or. idir > size(arrplan,2)) return
+      jmin = idir
+      jmax = idir
+    end if
 #if !defined(_OPENACC)
-    do j=1,size(arrplan,2)
+    do j=jmin,jmax
       do i=1,size(arrplan,1)
 #if defined(_SINGLE_PRECISION)
-        if(c_associated(arrplan(i,j))) call sfftw_destroy_plan(arrplan(i,j))
+        if(c_associated(arrplan(i,j))) then
+          call sfftw_destroy_plan(arrplan(i,j))
+          arrplan(i,j) = C_NULL_PTR
+        end if
 #else
-        if(c_associated(arrplan(i,j))) call dfftw_destroy_plan(arrplan(i,j))
+        if(c_associated(arrplan(i,j))) then
+          call dfftw_destroy_plan(arrplan(i,j))
+          arrplan(i,j) = C_NULL_PTR
+        end if
 #endif
       end do
     end do
+    if(is_all) then
 #if defined(_SINGLE_PRECISION)
-    !$ call sfftw_cleanup_threads(ierr)
+      !$ call sfftw_cleanup_threads(ierr)
 #else
-    !$ call dfftw_cleanup_threads(ierr)
+      !$ call dfftw_cleanup_threads(ierr)
 #endif
+    end if
 #else
-    do j=1,size(arrplan,2)
+    do j=jmin,jmax
       do i=1,size(arrplan,1)
 #if !defined(_USE_HIP)
-        if(arrplan(i,j) /= 0)          istat = cufftDestroy(arrplan(i,j))
+        if(arrplan(i,j) /= 0) then
+          istat = cufftDestroy(arrplan(i,j))
+          arrplan(i,j) = 0
+        end if
 #else
-        if(c_associated(arrplan(i,j))) istat = cufftDestroy(arrplan(i,j))
+        if(c_associated(arrplan(i,j))) then
+          istat = cufftDestroy(arrplan(i,j))
+          arrplan(i,j) = C_NULL_PTR
+        end if
 #endif
       end do
     end do

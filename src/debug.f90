@@ -13,7 +13,7 @@ module mod_debug
   public chk_helmholtz
   contains
   !
-  subroutine chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,fp,fpp,bc,is_bound,c_or_f,difftot,diffmax)
+  subroutine chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,fp,fpp,bc,is_bound,c_or_f,difftot,diffmax,is_implicit_dir)
     !
     ! this subroutine checks the correctness of the solution of a Helmholtz equation
     ! with collocated or staggered boundary conditions
@@ -30,10 +30,14 @@ module mod_debug
     character(len=1), intent(in), dimension(3) :: c_or_f
     logical         , intent(in), dimension(0:1,3) :: is_bound
     real(rp), intent(out) :: difftot,diffmax
+    logical, intent(in), optional, dimension(3) :: is_implicit_dir
     real(rp) :: val,res
     integer :: i,j,k
     integer :: idir
     integer, dimension(3) :: q
+    logical, dimension(3) :: is_dir
+    is_dir(:) = .true.
+    if(present(is_implicit_dir)) is_dir(:) = is_implicit_dir(:)
     q(:) = 0
     do idir = 1,3
       if(bc(1,idir) /= 'P'.and.c_or_f(idir) == 'f'.and.is_bound(1,idir)) q(idir) = 1
@@ -41,7 +45,7 @@ module mod_debug
     difftot = 0.
     diffmax = 0.
     !$acc wait
-    !$acc data copy(difftot,diffmax,q)
+    !$acc data copy(difftot,diffmax,q,is_dir)
     select case(c_or_f(1)//c_or_f(2)//c_or_f(3))
     case('ccc')
       !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
@@ -49,13 +53,13 @@ module mod_debug
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
-            val = alphai*fpp(i,j,k) + &
-                  ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
-                   (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i) + &
-                  ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
-                   (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j) + &
-                  ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
-                   (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
+            val = alphai*fpp(i,j,k)
+            if(is_dir(1)) val = val + ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
+                                       (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i)
+            if(is_dir(2)) val = val + ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
+                                       (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j)
+            if(is_dir(3)) val = val + ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
+                                       (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
             res = abs(val-fp(i,j,k)*alphai)
             difftot = difftot + res/(dxfi(i)*dyfi(j)*dzfi(k)) ! abs(res)*cell_volume
             diffmax = max(diffmax,res)
@@ -68,13 +72,13 @@ module mod_debug
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
-            val = alphai*fpp(i,j,k) + &
-                  ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxfi(i+1) - &
-                   (fpp(i  ,j,k)-fpp(i-1,j,k))*dxfi(i  ))*dxci(i) + &
-                  ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
-                   (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j) + &
-                  ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
-                   (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
+            val = alphai*fpp(i,j,k)
+            if(is_dir(1)) val = val + ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxfi(i+1) - &
+                                       (fpp(i  ,j,k)-fpp(i-1,j,k))*dxfi(i  ))*dxci(i)
+            if(is_dir(2)) val = val + ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
+                                       (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j)
+            if(is_dir(3)) val = val + ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
+                                       (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
             res = abs(val-fp(i,j,k)*alphai)
             difftot = difftot + res/(dxci(i)*dyfi(j)*dzfi(k)) ! abs(res)*cell_volume
             diffmax = max(diffmax,res)
@@ -87,13 +91,13 @@ module mod_debug
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
-            val = alphai*fpp(i,j,k) + &
-                  ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
-                   (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i) + &
-                  ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyfi(j+1) - &
-                   (fpp(i,j  ,k)-fpp(i,j-1,k))*dyfi(j  ))*dyci(j) + &
-                  ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
-                   (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
+            val = alphai*fpp(i,j,k)
+            if(is_dir(1)) val = val + ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
+                                       (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i)
+            if(is_dir(2)) val = val + ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyfi(j+1) - &
+                                       (fpp(i,j  ,k)-fpp(i,j-1,k))*dyfi(j  ))*dyci(j)
+            if(is_dir(3)) val = val + ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzci(k  ) - &
+                                       (fpp(i,j,k  )-fpp(i,j,k-1))*dzci(k-1))*dzfi(k)
             res = abs(val-fp(i,j,k)*alphai)
             difftot = difftot + res/(dxfi(i)*dyci(j)*dzfi(k)) ! abs(res)*cell_volume
             diffmax = max(diffmax,res)
@@ -106,13 +110,13 @@ module mod_debug
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
-            val = alphai*fpp(i,j,k) + &
-                  ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
-                   (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i) + &
-                  ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
-                   (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j) + &
-                  ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzfi(k+1) - &
-                   (fpp(i,j,k  )-fpp(i,j,k-1))*dzfi(k  ))*dzci(k)
+            val = alphai*fpp(i,j,k)
+            if(is_dir(1)) val = val + ((fpp(i+1,j,k)-fpp(i  ,j,k))*dxci(i  ) - &
+                                       (fpp(i  ,j,k)-fpp(i-1,j,k))*dxci(i-1))*dxfi(i)
+            if(is_dir(2)) val = val + ((fpp(i,j+1,k)-fpp(i,j  ,k))*dyci(j  ) - &
+                                       (fpp(i,j  ,k)-fpp(i,j-1,k))*dyci(j-1))*dyfi(j)
+            if(is_dir(3)) val = val + ((fpp(i,j,k+1)-fpp(i,j,k  ))*dzfi(k+1) - &
+                                       (fpp(i,j,k  )-fpp(i,j,k-1))*dzfi(k  ))*dzci(k)
             res = abs(val-fp(i,j,k)*alphai)
             difftot = difftot + res/(dxfi(i)*dyfi(j)*dzci(k)) ! abs(res)*cell_volume
             diffmax = max(diffmax,res)

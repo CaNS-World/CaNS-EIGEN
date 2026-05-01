@@ -14,7 +14,7 @@ module mod_initsolver
   public initsolver
   contains
   subroutine initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,cbc,bc, &
-                        lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,c_or_f,a,b,c,arrplan,normfft, &
+                        lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,c_or_f,a,b,c,arrplan,normfft, &
                         rhsbx,rhsby,rhsbz)
     !
     ! initializes the Poisson/Helmholtz solver
@@ -25,6 +25,7 @@ module mod_initsolver
     real(rp), intent(in), dimension(0:) :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     character(len=1), intent(in), dimension(0:1,3) :: cbc
     real(rp)        , intent(in), dimension(0:1,3) :: bc
+    real(rp), intent(out), dimension(:) :: lambdax_g,lambday_g
     real(rp), intent(out), dimension(lo_z(1):,lo_z(2):) :: lambdaxy
     real(rp), intent(out), dimension(:,:) :: eigvecx_fwd,eigvecx_bwd, &
                                              eigvecy_fwd,eigvecy_bwd
@@ -38,14 +39,12 @@ module mod_initsolver
     real(rp), intent(out), dimension(:,:,0:) :: rhsbx
     real(rp), intent(out), dimension(:,:,0:) :: rhsby
     real(rp), intent(out), dimension(:,:,0:) :: rhsbz
-    real(rp), intent(out) :: normfft
+    real(rp), intent(out), dimension(2) :: normfft
     real(rp), dimension(2)         :: dl,dli
     real(rp), dimension(0:ng(1)+1) :: dxc_g,dxf_g
     real(rp), dimension(0:ng(2)+1) :: dyc_g,dyf_g
     real(rp), dimension(0:ng(3)+1) :: dzc_g,dzf_g
     integer :: q,i,j
-    real(rp), dimension(ng(1))      :: lambdax
-    real(rp), dimension(ng(2))      :: lambday
     real(rp), dimension(ng(1))      :: ax_g,bx_g,cx_g
     real(rp), dimension(ng(2))      :: ay_g,by_g,cy_g
     real(rp), dimension(ng(3))      :: az_g,bz_g,cz_g
@@ -88,8 +87,8 @@ module mod_initsolver
     !         - Q      provides the backward transforms to be applied along x/y (`eigvecx/y_bwd` below).
     !
     if(is_poisson_fft(1)) then
-      call eigenvalues(ng(1),cbc(:,1),c_or_f(1),lambdax)
-      lambdax(:) = lambdax(:)*dli(1)**2
+      call eigenvalues(ng(1),cbc(:,1),c_or_f(1),lambdax_g)
+      lambdax_g(:) = lambdax_g(:)*dli(1)**2
     else
       !
       ! numerical eigendecomposition
@@ -106,7 +105,7 @@ module mod_initsolver
         deallocate(work,iwork)
         allocate(work(wsize),iwork(iwsize))
         call stedc('I',ng(1)-q,bx_g,cx_g,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,work,wsize,iwork,iwsize,info)
-        lambdax(:) = bx_g(:)
+        lambdax_g(:) = bx_g(:)
       else
         !
         ! periodic BCs: define full cyclic symmetric tridiagonal matrix (upper diagonal)
@@ -119,11 +118,11 @@ module mod_initsolver
           eigvecs(i,i+1) = cx_g(i)
         end do
         eigvecs(1,ng(1)-q) = cx_g(ng(1)-q) ! == ax_g(1) cyclic BC (but note that ax_g array is not symmetrized in `tridmatrix`)
-        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax(1:ng(1)-q),work,-1,iwork,-1,info) ! workspace size query
+        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax_g(1:ng(1)-q),work,-1,iwork,-1,info) ! workspace size query
         wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
         deallocate(work,iwork)
         allocate(work(wsize),iwork(iwsize))
-        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax(1:ng(1)-q),work,wsize,iwork,iwsize,info)
+        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax_g(1:ng(1)-q),work,wsize,iwork,iwsize,info)
       end if
       !
       ! compute generalized eigenvectors
@@ -138,7 +137,7 @@ module mod_initsolver
         end do
       case('f')
         if(q == 1) then ! set trivial equation for the boundary point
-          lambdax(ng(1)) = 0.
+          lambdax_g(ng(1)) = 0.
           eigvecs(ng(1),:    ) = 0.
           eigvecs(:    ,ng(1)) = 0.
           eigvecs(ng(1),ng(1)) = 1.
@@ -153,8 +152,8 @@ module mod_initsolver
       deallocate(work,iwork,eigvecs)
     end if
     if(is_poisson_fft(2)) then
-      call eigenvalues(ng(2),cbc(:,2),c_or_f(2),lambday)
-      lambday(:) = lambday(:)*dli(2)**2
+      call eigenvalues(ng(2),cbc(:,2),c_or_f(2),lambday_g)
+      lambday_g(:) = lambday_g(:)*dli(2)**2
     else
       !
       ! numerical eigendecomposition
@@ -171,7 +170,7 @@ module mod_initsolver
         deallocate(work,iwork)
         allocate(work(wsize),iwork(iwsize))
         call stedc('I',ng(2)-q,by_g,cy_g,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,work,wsize,iwork,iwsize,info)
-        lambday(:) = by_g(:)
+        lambday_g(:) = by_g(:)
       else
         !
         ! periodic BCs: define full cyclic symmetric tridiagonal matrix (upper diagonal)
@@ -184,11 +183,11 @@ module mod_initsolver
           eigvecs(j,j+1) = cy_g(j)
         end do
         eigvecs(1,ng(2)-q) = cy_g(ng(2)-q) ! == ay_g(1) cyclic BC (but note that ay_g array is not symmetrized in `tridmatrix`)
-        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday(1:ng(2)-q),work,-1,iwork,-1,info) ! workspace size query
+        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday_g(1:ng(2)-q),work,-1,iwork,-1,info) ! workspace size query
         wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
         deallocate(work,iwork)
         allocate(work(wsize),iwork(iwsize))
-        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday(1:ng(2)-q),work,wsize,iwork,iwsize,info)
+        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday_g(1:ng(2)-q),work,wsize,iwork,iwsize,info)
       end if
       !
       ! compute generalized eigenvectors
@@ -203,7 +202,7 @@ module mod_initsolver
         end do
       case('f')
         if(q == 1) then ! set trivial equation for the boundary point
-          lambday(ng(2)) = 0.
+          lambday_g(ng(2)) = 0.
           eigvecs(ng(2),:    ) = 0.
           eigvecs(:    ,ng(2)) = 0.
           eigvecs(ng(2),ng(2)) = 1.
@@ -222,7 +221,7 @@ module mod_initsolver
     !
     do j=lo_z(2),hi_z(2)
       do i=lo_z(1),hi_z(1)
-        lambdaxy(i,j) = lambdax(i)+lambday(j)
+        lambdaxy(i,j) = lambdax_g(i)+lambday_g(j)
       end do
     end do
     !

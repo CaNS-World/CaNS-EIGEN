@@ -65,7 +65,7 @@ contains
     ! estimate GPU memory footprint, assuming one MPI task <-> one GPU
     !
     use mod_types, only: i8,rp
-    use mod_param, only: is_impdiff,is_impdiff_1d,is_poisson_pcr_tdma
+    use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,is_poisson_pcr_tdma
     integer, intent(in), dimension(3) :: n,n_z
     integer, intent(in) :: nscal
     integer :: nh(3)
@@ -94,21 +94,26 @@ contains
       itemp1 = sum(itemp1_(:))   ! rhs
       itemp2 = product(int(n_z(1:2),i8)) ! lambdaxy
       itemp3 = int(n_z(3),i8)*3          ! a,b,c
-      if(.not.is_impdiff) then
+      if(impdiff_mode == impdiff_explicit) then
         !
         ! rhsbp, lambdaxyp, ap,bp,cp
         !
-        itotal = itotal + itemp1*rp_size                        + itemp2*rp_size           + itemp3*rp_size
-      else if(is_impdiff_1d) then
+        itotal = itotal + itemp1*rp_size                               + itemp2*rp_size           + itemp3*rp_size
+      else if(impdiff_mode == impdiff_z) then
         !
         ! rhsbp,rhsb[u,v,w,scalars,buf]%z, lambdaxyp, a?,b?,c? [p,u,v,w,scalars,buf]
         !
-        itotal = itotal + (itemp1+itemp1_(3)*(4+nscal))*rp_size + itemp2*rp_size           + itemp3*rp_size*(5+nscal)
+        itotal = itotal + (itemp1+itemp1_(3)*(4+nscal))*rp_size        + itemp2*rp_size           + itemp3*rp_size*(5+nscal)
+      else if(impdiff_mode == impdiff_yz) then
+        !
+        ! rhsbp,rhsb[u,v,w,scalars,buf]%[y,z], lambdaxyp, lambday? and a?,b?,c? [p,u,v,w,scalars,buf]
+        !
+        itotal = itotal + (itemp1+sum(itemp1_(2:3))*(4+nscal))*rp_size + itemp2*rp_size           + itemp3*rp_size*(5+nscal)
       else
         !
         ! rhsbp,rhsb[u,v,w,scalars,buf]%[x,y,z], lambdaxy[p,u,v,w,scalars], (a?,b?,c?)[p,u,v,w,scalars,buf]
         !
-        itotal = itotal + itemp1*rp_size*(1+4+nscal)            + itemp2*rp_size*(5+nscal) + itemp3*rp_size*(5+nscal)
+        itotal = itotal + itemp1*rp_size*(1+4+nscal)                   + itemp2*rp_size*(5+nscal) + itemp3*rp_size*(5+nscal)
       end if
     end block
     !
@@ -116,7 +121,7 @@ contains
     !
     itemp  = product(int(n(:),i8))*rp_size
     itotal = itotal + itemp*(2*(3+nscal))
-    if(is_impdiff) then
+    if(impdiff_mode /= impdiff_explicit) then
       itotal = itotal + itemp*(1*(3+nscal))
     end if
     !

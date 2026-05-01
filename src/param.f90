@@ -98,8 +98,12 @@ logical, protected :: is_debug = .true., is_debug_poisson = .false., &
 !
 ! other options: numerics
 !
-logical, protected :: is_impdiff = .false., is_impdiff_1d = .false., &
-                      is_poisson_pcr_tdma = .false., &
+integer, parameter :: impdiff_explicit = 0, &
+                      impdiff_z        = 1, &
+                      impdiff_yz       = 2, &
+                      impdiff_xyz      = 3
+integer, protected :: impdiff_mode = impdiff_explicit
+logical, protected :: is_poisson_pcr_tdma = .false., &
                       is_poisson_fft(2) = [.true.,.true.], &
                       is_fast_mom_kernels = .true., &
                       is_gridpoint_natural_channel = .false.
@@ -156,7 +160,7 @@ contains
                      scalf, &
                      is_boussinesq_buoyancy
     namelist /numerics/ &
-                       is_impdiff,is_impdiff_1d, &
+                       impdiff_mode, &
                        is_poisson_pcr_tdma, &
                        is_poisson_fft, &
                        is_gridpoint_natural_channel
@@ -335,7 +339,13 @@ contains
         close(iunit)
         error stop
       end if
-      if(is_impdiff_1d) is_impdiff = .true.
+      if(all([impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz] /= impdiff_mode)) then
+        if(myid == 0) print*, 'ERROR: `impdiff_mode` must be 0, 1, 2, or 3.'
+        if(myid == 0) print*, 'Aborting...'
+        call MPI_FINALIZE(ierr)
+        close(iunit)
+        error stop
+      end if
       !
       ! read `other_options` namelist
       !

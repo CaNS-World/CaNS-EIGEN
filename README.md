@@ -7,7 +7,7 @@
 
 This solver extends the FFT-based Poisson solver in CaNS with a tensor-based eigendecomposition method. For non-uniform grids, the one-dimensional operators are diagonalized numerically and the FFTs are replaced by dense eigenprojections, which can be expressed as a single GEMM (General Matrix-Matrix Multiplication) per transformed direction; on uniform grids, this reduces to the classical method of eigenfunction expansions. Since both formulations share the same tensor-product structure, FFT- and GEMM-based transforms can be mixed along the first two domain directions. As in CaNS, in the third domain direction, the solver solves a tridiagonal system using TDMA.
 
-CaNS also allows for choosing an implicit temporal discretization of the momentum diffusion terms, either fully implicit or only along the last domain direction. This results in solving a 3D/1D Helmholtz equation per velocity component. In the fully implicit case, FFT-based solvers are also used, and the same options described above for pressure boundary conditions apply to the velocity.
+CaNS also allows for choosing an implicit temporal discretization of diffusion terms. Diffusion may be treated explicitly in all directions, implicitly only along Z, implicitly along Y and Z, or implicitly along all directions. For the implicit modes, this results in solving a 1D, 2D, or 3D Helmholtz equation per velocity component. The same FFT/GEMM transform options described above for the pressure Poisson equation are used by the Helmholtz solvers in the implicit directions.
 
 **References**
 
@@ -17,7 +17,9 @@ P. Costa. *A FFT-based finite-difference solver for massively-parallel direct nu
 
 ## News
 
-### **[25/04/2026]:** `CaNS-EIGEN` is released!
+**[04/05/2026]:** We have implemented support for YZ-implicit momentum diffusion, complementing the existing explicit, Z-implicit, and fully implicit diffusion modes.
+
+**[25/04/2026]:** `CaNS-EIGEN` is released!
 
 ### _Major Update:_ `CaNS 4.0` _is out!_ :tada:
 See the [Release Notes](https://github.com/CaNS-World/CaNS/releases/tag/v4.0.0) for more details.
@@ -35,6 +37,7 @@ Some features are:
  * Hybrid MPI/OpenMP parallelization
  * FFTW guru interface / cuFFT used for computing multi-dimensional vectors of 1D transforms
  * The right type of transformation (Fourier, cosine, sine, etc.) is automatically determined from the input file
+ * Explicit, Z-implicit, YZ-implicit, and fully implicit temporal integration options for the momentum diffusion terms
  * [cuDecomp](https://github.com/NVIDIA/cuDecomp) pencil decomposition library for _hardware-adaptive_ distributed memory calculations on _many GPUs_
  * [diezDecomp](https://github.com/Rafael10Diez/diezDecomp) pencil decomposition library for distributed memory calculations on various GPU/CPU hardware platforms
  * [2DECOMP&FFT](https://github.com/xcompact3d/2decomp-fft) library used for performing global data transpositions on CPUs and some of the data I/O
@@ -54,7 +57,7 @@ This project aimed first at being a modern alternative to the well-known FISHPAC
 
 ## Method
 
-The fluid flow is solved with a second-order finite-difference pressure-correction scheme, discretized in a MAC grid arrangement. Time is advanced with a three-step low-storage Runge-Kutta scheme. Optionally, for increased stability at low Reynolds numbers, at the price of higher computational demand, the diffusion term can be treated implicitly. See the reference above for details.
+The fluid flow is solved with a second-order finite-difference pressure-correction scheme, discretized in a MAC grid arrangement. Time is advanced with a three-step low-storage Runge-Kutta scheme. Optionally, for increased stability at low Reynolds numbers, at the price of higher computational demand, the momentum diffusion term can be treated implicitly along Z, along YZ, or along all directions. See the reference above for details.
 
 ## Usage
 

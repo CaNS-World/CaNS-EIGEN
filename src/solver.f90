@@ -13,7 +13,7 @@ module mod_solver
   use mod_types
   implicit none
   private
-  public solver,solver_gaussel_z
+  public solver,solver_gaussel_z,solver_gaussel_yz
   contains
   subroutine solver(n,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
                     bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
@@ -675,6 +675,214 @@ module mod_solver
       end select
     end if
   end subroutine solver_gaussel_z
+  !
+  subroutine solver_gaussel_yz(n,ng,is_fft,arrplan,normfft,lambday,eigvecy_fwd,eigvecy_bwd,a,b,c,bc,c_or_f,p)
+    implicit none
+    integer , intent(in), dimension(3) :: n,ng
+    logical , intent(in), dimension(2) :: is_fft
+    type(C_PTR), intent(in), dimension(2,2) :: arrplan
+    real(rp), intent(in) :: normfft
+    real(rp), intent(in), dimension(:) :: lambday
+    real(rp), intent(in), dimension(:,:) :: eigvecy_fwd,eigvecy_bwd
+    real(rp), intent(in), dimension(:) :: a,b,c
+    character(len=1), dimension(0:1,3), intent(in) :: bc
+    character(len=1), intent(in), dimension(3) :: c_or_f
+    real(rp), intent(inout), dimension(0:,0:,0:) :: p
+    real(rp), target, allocatable, dimension(:,:,:) :: py,pz
+    real(rp), target, allocatable, dimension(:,:,:) :: py_aux_1,py_aux_2
+    real(rp), pointer, contiguous, dimension(:,:) :: py_aux_1_2d,py_aux_2_2d
+    integer :: i,j,k,q
+    logical :: is_periodic_z
+    !
+    allocate(py(ysize(1),ysize(2),ysize(3)))
+    if(ipencil_axis == 3) allocate(pz(zsize(1),zsize(2),zsize(3)))
+    if(.not.is_fft(2)) then
+      allocate(py_aux_1(ysize(2),ysize(3),ysize(1)))
+      allocate(py_aux_2(ysize(2),ysize(3),ysize(1)))
+      call c_f_pointer(c_loc(py_aux_1),py_aux_1_2d,[ysize(2),ysize(3)*ysize(1)])
+      call c_f_pointer(c_loc(py_aux_2),py_aux_2_2d,[ysize(2),ysize(3)*ysize(1)])
+    end if
+    select case(ipencil_axis)
+    case(2)
+      !$OMP PARALLEL WORKSHARE
+      py(:,:,:) = p(1:n(1),1:n(2),1:n(3))
+      !$OMP END PARALLEL WORKSHARE
+    case(3)
+      !$OMP PARALLEL WORKSHARE
+      pz(:,:,:) = p(1:n(1),1:n(2),1:n(3))
+      !$OMP END PARALLEL WORKSHARE
+      call transpose_z_to_y(pz,py)
+    end select
+    !
+    if(is_fft(2)) then
+      call fft(arrplan(1,2),py)
+    else
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py_aux_1(j,k,i) = py(i,j,k)
+          end do
+        end do
+      end do
+      call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
+                eigvecy_fwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py(i,j,k) = py_aux_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
+    !
+    q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.yend(3) == ng(3))
+    is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
+    call gaussel_yz(ysize(1),ysize(2),ysize(3)-q,0,a,b,c,is_periodic_z,normfft,py,lambday)
+    !
+    if(is_fft(2)) then
+      call fft(arrplan(2,2),py)
+    else
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py_aux_1(j,k,i) = py(i,j,k)
+          end do
+        end do
+      end do
+      call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
+                eigvecy_bwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do k=1,ysize(3)
+        do j=1,ysize(2)
+          do i=1,ysize(1)
+            py(i,j,k) = py_aux_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
+    !
+    select case(ipencil_axis)
+    case(2)
+      !$OMP PARALLEL WORKSHARE
+      p(1:n(1),1:n(2),1:n(3)) = py(:,:,:)
+      !$OMP END PARALLEL WORKSHARE
+    case(3)
+      call transpose_y_to_z(py,pz)
+      !$OMP PARALLEL WORKSHARE
+      p(1:n(1),1:n(2),1:n(3)) = pz(:,:,:)
+      !$OMP END PARALLEL WORKSHARE
+    end select
+  end subroutine solver_gaussel_yz
+  !
+  subroutine gaussel_yz(nx,ny,n,nh,a,b,c,is_periodic,norm,p,lambday)
+    use mod_param, only: eps
+    implicit none
+    integer , intent(in) :: nx,ny,n,nh
+    real(rp), intent(in), dimension(:) :: a,b,c,lambday
+    logical , intent(in) :: is_periodic
+    real(rp), intent(in) :: norm
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
+    real(rp), allocatable, dimension(:,:,:) :: d,p2
+    real(rp) :: z,lambda
+    integer :: i,j,k,nn
+    !
+    nn = n
+    if(is_periodic) nn = n-1
+    allocate(d(nx,ny,nn))
+    !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+    do j=1,ny
+      do i=1,nx
+        lambda = lambday(j)
+        z = 1./(b(1) + lambda + eps)
+        d(i,j,1) = c(1)*z
+        p(i,j,1) = p(i,j,1)*norm*z
+      end do
+    end do
+    do k=2,nn
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+      do j=1,ny
+        do i=1,nx
+          lambda = lambday(j)
+          z = 1./(b(k) + lambda - a(k)*d(i,j,k-1) + eps)
+          d(i,j,k) = c(k)*z
+          p(i,j,k) = (p(i,j,k)*norm - a(k)*p(i,j,k-1))*z
+        end do
+      end do
+    end do
+    do k=nn-1,1,-1
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do j=1,ny
+        do i=1,nx
+          p(i,j,k) = p(i,j,k) - d(i,j,k)*p(i,j,k+1)
+        end do
+      end do
+    end do
+    if(is_periodic) then
+      allocate(p2(nx,ny,nn))
+      !$OMP PARALLEL DO COLLAPSE(3) DEFAULT(shared)
+      do k=1,nn
+        do j=1,ny
+          do i=1,nx
+            p2(i,j,k) = 0.
+          end do
+        end do
+      end do
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do j=1,ny
+        do i=1,nx
+          p2(i,j,1 ) = -a(1 )
+          p2(i,j,nn) = -c(nn)
+        end do
+      end do
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+      do j=1,ny
+        do i=1,nx
+          lambda = lambday(j)
+          z = 1./(b(1) + lambda + eps)
+          d( i,j,1) = c(1)*z
+          p2(i,j,1) = p2(i,j,1)*z
+        end do
+      end do
+      do k=2,nn
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+        do j=1,ny
+          do i=1,nx
+            lambda = lambday(j)
+            z = 1./(b(k) + lambda - a(k)*d(i,j,k-1) + eps)
+            d( i,j,k) = c(k)*z
+            p2(i,j,k) = (p2(i,j,k) - a(k)*p2(i,j,k-1))*z
+          end do
+        end do
+      end do
+      do k=nn-1,1,-1
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            p2(i,j,k) = p2(i,j,k) - d(i,j,k)*p2(i,j,k+1)
+          end do
+        end do
+      end do
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(lambda)
+      do j=1,ny
+        do i=1,nx
+          lambda = lambday(j)
+          p(i,j,nn+1) = (p(i,j,nn+1)*norm - c(nn+1)*p(i,j,1) - a(nn+1)*p(i,j,nn)) / &
+                        (b(nn+1) + lambda + c(nn+1)*p2(i,j,1) + a(nn+1)*p2(i,j,nn) + eps)
+        end do
+      end do
+      do k=1,nn
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            p(i,j,k) = p(i,j,k) + p2(i,j,k)*p(i,j,nn+1)
+          end do
+        end do
+      end do
+    end if
+  end subroutine gaussel_yz
   !
 #if 0
   subroutine gaussel_lapack(nx,ny,n,a,b,c,p)

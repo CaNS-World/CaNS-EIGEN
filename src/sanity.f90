@@ -18,7 +18,7 @@ module mod_sanity
   use mod_initflow  , only: add_noise
   use mod_initmpi   , only: initmpi
   use mod_initsolver, only: initsolver
-  use mod_param     , only: ipencil_axis,is_impdiff,is_impdiff_1d,is_poisson_pcr_tdma,small
+  use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_pcr_tdma,small
 #if !defined(_OPENACC)
   use mod_solver    , only: solver
 #else
@@ -48,13 +48,22 @@ module mod_sanity
     call chk_stop_type(stop_type,passed);          if(.not.passed) call abortit
     call chk_bc(cbcvel,cbcpre,bcvel,bcpre,passed); if(.not.passed) call abortit
     call chk_forcing(cbcpre,is_forced,passed);     if(.not.passed) call abortit
-    if(is_impdiff_1d .and. .not.is_impdiff) then
-      if(myid == 0)  print*, 'ERROR: `is_impdiff_1d = T` requires `is_impdiff = T` (forced in `param.f90`).'; call abortit
-    end if
-    if(is_impdiff_1d .and. .not.(ipencil_axis == 3) .and. .not.is_poisson_pcr_tdma) then
+    if(impdiff_mode == impdiff_z .and. .not.(ipencil_axis == 3) .and. .not.is_poisson_pcr_tdma) then
       if(dims(2) > 1) then
-        if(myid == 0)  print*, 'Warning: a run with implicit Z diffusion (`is_impdiff_1d = T`) is much more efficient &
+        if(myid == 0)  print*, 'Warning: a run with implicit Z diffusion (`impdiff_mode = 1`) is much more efficient &
                                        & when the flow is not decomposed along the Z direction.'
+      end if
+    end if
+    if(impdiff_mode == impdiff_yz) then
+      if(is_poisson_pcr_tdma) then
+        if(myid == 0) print*, 'ERROR: `impdiff_mode = 2` does not support `is_poisson_pcr_tdma = T`.'; call abortit
+      end if
+      if(dims(2) /= 1 .or. .not.any(ipencil_axis == [2,3])) then
+        if(myid == 0) print*, 'ERROR: `impdiff_mode = 2` requires `ipencil_axis = 2` or `3` and `dims(2) = 1`.'
+        call abortit
+      end if
+      if(ipencil_axis == 3) then
+        if(myid == 0) print*, 'Warning: `impdiff_mode = 2` may be more efficient with `ipencil_axis = 2`.'
       end if
     end if
     if(is_poisson_pcr_tdma .and. (ipencil_axis == 3)) then
@@ -168,26 +177,30 @@ module mod_sanity
     if(myid == 0.and.(.not.passed_loc)) &
       print*, 'ERROR: pressure BCs in directions x and y must be homogeneous (value = 0.).'
     passed = passed.and.passed_loc
-    if(is_impdiff) then
+    if(impdiff_mode == impdiff_yz .or. impdiff_mode == impdiff_xyz) then
       passed_loc = .true.
       do ivel = 1,3
         do idir=1,2
-          bc01v = cbcvel(0,idir,ivel)//cbcvel(1,idir,ivel)
-          passed_loc = passed_loc.and.(bc01v /= 'NN')
+          if(impdiff_mode == impdiff_xyz .or. idir == 2) then
+            bc01v = cbcvel(0,idir,ivel)//cbcvel(1,idir,ivel)
+            passed_loc = passed_loc.and.(bc01v /= 'NN')
+          end if
         end do
       end do
       if(myid == 0.and.(.not.passed_loc)) &
-        print*, 'ERROR: Neumann-Neumann velocity BCs with implicit diffusion currently not supported in x and y; only in z.'
+        print*, 'ERROR: Neumann-Neumann velocity BCs with implicit diffusion currently not supported in x/y.'
       passed = passed.and.passed_loc
       !
       passed_loc = .true.
       do ivel = 1,3
         do idir=1,2
-          passed_loc = passed_loc.and.((bcvel(0,idir,ivel) == 0.).and.(bcvel(1,idir,ivel) == 0.))
+          if(impdiff_mode == impdiff_xyz .or. idir == 2) then
+            passed_loc = passed_loc.and.((bcvel(0,idir,ivel) == 0.).and.(bcvel(1,idir,ivel) == 0.))
+          end if
         end do
       end do
       if(myid == 0.and.(.not.passed_loc)) &
-        print*, 'ERROR: velocity BCs with implicit diffusion in directions x and y must be homogeneous (value = 0.).'
+        print*, 'ERROR: velocity BCs with implicit diffusion in directions x/y must be homogeneous (value = 0.).'
       passed = passed.and.passed_loc
     end if
 #if defined(_OPENACC)
@@ -246,7 +259,8 @@ module mod_sanity
 #else
     integer    , dimension(2,2) :: arrplan
 #endif
-    real(rp) :: normfft
+    real(rp), dimension(2) :: normfft
+    real(rp), allocatable, dimension(:) :: lambdax_g,lambday_g
     real(rp), allocatable, dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp), allocatable, dimension(:) :: a,b,c,bb
     real(rp), allocatable, dimension(:,:,:) :: rhsbx,rhsby,rhsbz
@@ -260,7 +274,7 @@ module mod_sanity
              v(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
              w(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
              p(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             lambdaxy(n_z(1),n_z(2)), &
+             lambdax_g(ng(1)),lambday_g(ng(2)),lambdaxy(n_z(1),n_z(2)), &
              eigvecx_fwd(ng(1),ng(1)),eigvecx_bwd(ng(1),ng(1)), &
              eigvecy_fwd(ng(2),ng(2)),eigvecy_bwd(ng(2),ng(2)), &
              a(n_z(3)),b(n_z(3)),c(n_z(3)), &
@@ -283,7 +297,7 @@ module mod_sanity
     ! test pressure correction
     !
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                    cbcpre,bcpre(:,:),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                    cbcpre,bcpre(:,:),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                     ['c','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
     !$acc enter data copyin(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
 #if defined(_OPENACC)
@@ -294,7 +308,7 @@ module mod_sanity
     call bounduvw(cbcvel,n,bcvel,nb,is_bound,.false.,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
     call fillps(n,dxfi,dyfi,dzfi,dti,u,v,w,p)
     call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbx,rhsby,rhsbz,p)
-    call solver(n,ng,is_poisson_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
+    call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
                 cbcpre,['c','c','c'],p)
     call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p)
     call correc(n,dxci,dyci,dzci,dt,p,u,v,w)
@@ -305,7 +319,7 @@ module mod_sanity
     print*, 'ERROR: Pressure correction: Divergence is too large, with maximum = ', divmax
     passed = passed.and.passed_loc
     call fftend(arrplan)
-    if(is_impdiff .and. .not.is_impdiff_1d) then
+    if(impdiff_mode == impdiff_xyz) then
       allocate(bb(n_z(3)))
       alpha  = acos(-1.) ! irrelevant
       alphai = alpha**(-1)
@@ -327,7 +341,7 @@ module mod_sanity
       !$acc update device(u,v,w)
       !$acc enter data create(bb)
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,1),bcvel(:,:,1),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                      cbcvel(:,:,1),bcvel(:,:,1),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['f','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
       !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
 #if defined(_OPENACC)
@@ -349,8 +363,8 @@ module mod_sanity
         bb(k) = b(k) + alphai
       end do
       call updt_rhs_b(['f','c','c'],cbcvel(:,:,1),n,is_bound,rhsbx,rhsby,rhsbz,u,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,normfft*alphai,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c, &
-                  cbcvel(:,:,1),['f','c','c'],u)
+      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
+                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,1),['f','c','c'],u)
       call fftend(arrplan)
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,.false.,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `u`
       call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,u,cbcvel(:,:,1),is_bound,['f','c','c'],restot,resmax)
@@ -360,7 +374,7 @@ module mod_sanity
       passed = passed.and.passed_loc
       !
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,2),bcvel(:,:,2),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                      cbcvel(:,:,2),bcvel(:,:,2),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['c','f','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
       !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
 #if defined(_OPENACC)
@@ -382,8 +396,8 @@ module mod_sanity
         bb(k) = b(k) + alphai
       end do
       call updt_rhs_b(['c','f','c'],cbcvel(:,:,2),n,is_bound,rhsbx,rhsby,rhsbz,v,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,normfft*alphai,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c, &
-                  cbcvel(:,:,2),['c','f','c'],v)
+      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
+                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,2),['c','f','c'],v)
       call fftend(arrplan)
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,.false.,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `v`
       call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,v,cbcvel(:,:,2),is_bound,['c','f','c'],restot,resmax)
@@ -393,7 +407,7 @@ module mod_sanity
       passed = passed.and.passed_loc
       !
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,3),bcvel(:,:,3),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                      cbcvel(:,:,3),bcvel(:,:,3),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['c','c','f'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
       !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
 #if defined(_OPENACC)
@@ -415,8 +429,8 @@ module mod_sanity
         bb(k) = b(k) + alphai
       end do
       call updt_rhs_b(['c','c','f'],cbcvel(:,:,3),n,is_bound,rhsbx,rhsby,rhsbz,w,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,normfft*alphai,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c, &
-                  cbcvel(:,:,3),['c','c','f'],w)
+      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
+                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,3),['c','c','f'],w)
       call fftend(arrplan)
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,.false.,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `w`
       call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,w,cbcvel(:,:,3),is_bound,['c','c','f'],restot,resmax)

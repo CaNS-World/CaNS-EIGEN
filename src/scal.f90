@@ -31,15 +31,16 @@ module mod_scal
 #else
     integer    , dimension(2,2) :: arrplan
 #endif
+    real(rp), allocatable, dimension(:) :: lambdax_g,lambday_g
     real(rp), allocatable, dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp), allocatable, dimension(:) :: a,b,c
-    real(rp) :: normfft
+    real(rp), dimension(2) :: normfft
     type(rhs_bound) :: rhsb
   end type scalar
   !
   contains
   subroutine scal(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,s,dsdt,dsdtd)
-    use mod_param, only: is_impdiff,is_impdiff_1d
+    use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz
     !
     ! computes convective and diffusive fluxes
     !
@@ -53,13 +54,13 @@ module mod_scal
     integer :: i,j,k
     real(rp) :: usip,usim,vsjp,vsjm,wskp,wskm
     real(rp) :: dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm
-    real(rp) :: dsdtd_xy,dsdtd_z
+    real(rp) :: dsdtd_x,dsdtd_y,dsdtd_z,dsdtd_xy
     !
 #if !defined(_LOOP_UNSWITCHING)
     !$acc parallel loop collapse(3) default(present) &
-    !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z) async(1)
+    !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_x,dsdtd_y,dsdtd_z) async(1)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
-    !$OMP PRIVATE(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z)
+    !$OMP PRIVATE(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_x,dsdtd_y,dsdtd_z)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -79,24 +80,26 @@ module mod_scal
           dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
                         dyfi(j)*( -vsjp + vsjm ) + &
                         dzfi(k)*( -wskp + wskm )
-          dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
-                     (dsdyp-dsdym)*visc*dyfi(j)
-          dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
-          if(is_impdiff) then
-            if(is_impdiff_1d) then
-              dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_xy
-              dsdtd(i,j,k) = dsdtd_z
-            else
-              dsdtd(i,j,k) = dsdtd_xy + dsdtd_z
-            end if
-          else
-            dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_xy + dsdtd_z
-          end if
+          dsdtd_x = (dsdxp-dsdxm)*visc*dxfi(i)
+          dsdtd_y = (dsdyp-dsdym)*visc*dyfi(j)
+          dsdtd_z = (dsdzp-dsdzm)*visc*dzfi(k)
+          select case(impdiff_mode)
+          case(impdiff_explicit)
+            dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_x + dsdtd_y + dsdtd_z
+          case(impdiff_z)
+            dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_x + dsdtd_y
+            dsdtd(i,j,k) = dsdtd_z
+          case(impdiff_yz)
+            dsdt(i,j,k)  = dsdt(i,j,k) + dsdtd_x
+            dsdtd(i,j,k) = dsdtd_y + dsdtd_z
+          case(impdiff_xyz)
+            dsdtd(i,j,k) = dsdtd_x + dsdtd_y + dsdtd_z
+          end select
         end do
       end do
     end do
 #else
-    if(.not.is_impdiff) then
+    if(impdiff_mode == impdiff_explicit) then
       !$acc parallel loop collapse(3) default(present) &
       !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
@@ -126,7 +129,7 @@ module mod_scal
           end do
         end do
       end do
-    else if(is_impdiff .and. is_impdiff_1d) then
+    else if(impdiff_mode == impdiff_z) then
       !$acc parallel loop collapse(3) default(present) &
       !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
@@ -159,9 +162,9 @@ module mod_scal
       end do
     else
       !$acc parallel loop collapse(3) default(present) &
-      !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z) async(1)
+      !$acc private(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_x,dsdtd_y,dsdtd_z) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
-      !$OMP PRIVATE(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_xy,dsdtd_z)
+      !$OMP PRIVATE(usip,usim,vsjp,vsjm,wskp,wskm,dsdxp,dsdxm,dsdyp,dsdym,dsdzp,dsdzm,dsdtd_x,dsdtd_y,dsdtd_z)
       do k=1,nz
         do j=1,ny
           do i=1,nx
@@ -180,10 +183,15 @@ module mod_scal
             dsdt(i,j,k) = dxfi(i)*( -usip + usim ) + &
                           dyfi(j)*( -vsjp + vsjm ) + &
                           dzfi(k)*( -wskp + wskm )
-            dsdtd_xy = (dsdxp-dsdxm)*visc*dxfi(i) + &
-                       (dsdyp-dsdym)*visc*dyfi(j)
-            dsdtd_z  = (dsdzp-dsdzm)*visc*dzfi(k)
-            dsdtd(i,j,k) = dsdtd_xy + dsdtd_z
+            dsdtd_x = (dsdxp-dsdxm)*visc*dxfi(i)
+            dsdtd_y = (dsdyp-dsdym)*visc*dyfi(j)
+            dsdtd_z = (dsdzp-dsdzm)*visc*dzfi(k)
+            if(impdiff_mode == impdiff_yz) then
+              dsdt( i,j,k) = dsdt(i,j,k) + dsdtd_x
+              dsdtd(i,j,k) = dsdtd_y + dsdtd_z
+            else
+              dsdtd(i,j,k) = dsdtd_x + dsdtd_y + dsdtd_z
+            end if
           end do
         end do
       end do
@@ -318,7 +326,7 @@ module mod_scal
   !
   subroutine initialize_scalars(scalars,nscal,ng,n,n_z)
     use mod_param, only: alphai,iniscal,cbcscal,bcscal,ssource,is_sforced,scalf, &
-                         is_impdiff
+                         impdiff_mode,impdiff_explicit
     !
     ! initializes/allocates members of an array of `nscal` scalar derived types
     !
@@ -329,7 +337,8 @@ module mod_scal
     do iscal=1,nscal
       allocate(scalars(iscal)%val(0:n(1)+1,0:n(2)+1,0:n(3)+1))
       allocate(scalars(iscal)%dsdtrko(n(1),n(2),n(3)))
-      if(is_impdiff) then
+      if(impdiff_mode /= impdiff_explicit) then
+        allocate(scalars(iscal)%lambdax_g(ng(1)),scalars(iscal)%lambday_g(ng(2)))
         allocate(scalars(iscal)%lambdaxy(n_z(1),n_z(2)))
         allocate(scalars(iscal)%eigvecx_fwd(ng(1),ng(1)),scalars(iscal)%eigvecx_bwd(ng(1),ng(1)), &
                  scalars(iscal)%eigvecy_fwd(ng(2),ng(2)),scalars(iscal)%eigvecy_bwd(ng(2),ng(2)))

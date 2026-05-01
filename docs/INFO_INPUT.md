@@ -217,7 +217,7 @@ This line sets the domain decomposition and orientation of the computational sub
 
 `dims` is the **processor grid**, the number of domain partitions along the first and second decomposed directions (which depend on the selected default pencil orientation). `dims(1)*dims(2)` corresponds therefore to the total number of computational subdomains. Setting `dims(:) = [0,0]` will trigger a runtime autotuning step to find the processor grid that minimizes transpose times. Note, however, that other components of the algorithm (e.g., collective I/O) may also be affected by the choice of processor grid.
 
-`ipencil_axis` sets the **orientation of the computational subdomains** (or pencils), being one of `[1,2,3]` for `[X,Y,Z]`-aligned pencils. X-aligned is the default if this option is not set, and should be optimal for all cases except for Z-implicit diffusion, where Z-pencils are recommended if `dims(2) > 1` in the input file; see the description of the `&numerics` namelist below.
+`ipencil_axis` sets the **orientation of the computational subdomains** (or pencils), being one of `[1,2,3]` for `[X,Y,Z]`-aligned pencils. X-aligned is the default if this option is not set, and should be optimal for all cases except for Z-implicit diffusion, where Z-pencils are recommended if `dims(2) > 1`, and YZ-implicit diffusion, where Y-pencils are recommended with `dims(2) = 1`; see the description of the `&numerics` namelist below.
 
 # About the `&cudecomp` namelist under `input.nml`
 
@@ -356,15 +356,17 @@ This namelist defines parameters related to the numerical discretization and com
 
 ```fortran
 &numerics
-is_impdiff = F, is_impdiff_1d = F
+impdiff_mode = 0
 is_poisson_pcr_tdma = F, is_poisson_fft = T, T
 /
 ```
 
-In these lines, `is_impdiff` and `is_impdiff_1d` enable the (semi-) **implicit temporal integration of diffusion terms**:
+In this line, `impdiff_mode` controls the (semi-) **implicit temporal integration of diffusion terms**:
 
-* `is_impdiff`, if `.true.`, the diffusion term of the Navier-Stokes and scalar equations is integrated in time implicitly, which may improve the stability of the numerical algorithm for viscous-dominated flows.
-* `is_impdiff_1d` is similar to `is_impdiff`, but with implicit diffusion *only* along Z, which may be advantageous when the grid along Z is much finer than along the other directions; *for optimal parallel performance, the domain should not be decomposed along Z* (`ipencil_axis=3`, or `ipencil_axis = 1/2` with `dims(2) = 1`)
+* `0`: explicit diffusion in X, Y, and Z.
+* `1`: implicit diffusion only along Z.
+* `2`: implicit diffusion along Y and Z; this requires `ipencil_axis = 2` or `3` with `dims(2) = 1`, and `ipencil_axis = 2` is recommended.
+* `3`: implicit diffusion along all directions.
 
 `is_poisson_pcr_tdma`, if `.true.`, allows for solving the Poisson/Helmholtz equations along Z with a parallel cyclic reduction--tridiagonal matrix algorithm (PCR-TDMA) method. This approach may result in major gains in scalability for pencil-distributed simulations at scale, on many GPUs.
 

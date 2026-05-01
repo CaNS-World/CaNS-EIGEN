@@ -47,7 +47,7 @@ module mod_solver_gpu
   use mod_types
   implicit none
   private
-  public solver_gpu,solver_gaussel_z_gpu
+  public solver_gpu,solver_gaussel_z_gpu,solver_gaussel_yz_gpu
   contains
   subroutine solver_gpu(n,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
                         bc,c_or_f,p,is_ptdma_update,aa_z,cc_z)
@@ -1160,6 +1160,187 @@ module mod_solver_gpu
       end select
     end if
   end subroutine solver_gaussel_z_gpu
+  !
+  subroutine solver_gaussel_yz_gpu(n,ng,is_fft,arrplan,normfft,lambday,eigvecy_fwd,eigvecy_bwd,a,b,c,bc,c_or_f,p)
+    implicit none
+    integer , intent(in), dimension(3) :: n,ng
+    logical , intent(in), dimension(2) :: is_fft
+#if !defined(_USE_HIP)
+    integer    , intent(in), dimension(2,2) :: arrplan
+#else
+    type(C_PTR), intent(in), dimension(2,2) :: arrplan
+#endif
+    real(rp), intent(in) :: normfft
+    real(rp), intent(in), dimension(:) :: lambday
+    real(rp), intent(in), dimension(:,:) :: eigvecy_fwd,eigvecy_bwd
+    real(rp), intent(in), dimension(:) :: a,b,c
+    character(len=1), dimension(0:1,3), intent(in) :: bc
+    character(len=1), intent(in), dimension(3) :: c_or_f
+    real(rp), intent(inout), dimension(0:,0:,0:) :: p
+    real(rp), pointer, contiguous, dimension(:,:,:) :: py,py_1,py_2,pz,pfft_tmp_y
+    integer :: i,j,k,q
+    logical :: is_periodic_z
+    integer, dimension(3) :: n_y
+    integer :: istat
+    !
+    n_y(:) = ap_y%shape(:)
+    py(  1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+    py_1(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+    py_2(1:n_y(1),1:n_y(2),1:n_y(3)) => solver_buf_1(1:product(n_y(:)))
+    if(.not.is_fft(2)) then
+      py_2(1:n_y(1),1:n_y(2),1:n_y(3)) => gemm_buf_y(1:product(n_y(:)))
+    end if
+    pz(1:n(1),1:n(2),1:n(3)) => solver_buf_0(1:product(n(:)))
+    pfft_tmp_y(1:n_y(1),1:n_y(2),1:n_y(3)) => work(1:product(n_y(:)))
+    !
+    !$acc parallel loop collapse(3) default(present) async(1)
+    do k=1,n(3)
+      do j=1,n(2)
+        do i=1,n(1)
+          py(j,k,i) = p(i,j,k)
+        end do
+      end do
+    end do
+    !
+    if(is_fft(2)) then
+      call fft_gpu('F',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(1,2),py,pfft_tmp_y)
+    else
+      !$acc host_data use_device(eigvecy_fwd,py_1,py_2)
+      istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
+                   eigvecy_fwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
+      !$acc end host_data
+    end if
+    !
+    if(is_fft(2)) then
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n(3)
+        do j=1,n(2)
+          do i=1,n(1)
+            pz(i,j,k) = py(j,k,i)
+          end do
+        end do
+      end do
+    else
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n(3)
+        do j=1,n(2)
+          do i=1,n(1)
+            pz(i,j,k) = py_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
+    !
+    q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.n(3) == ng(3))
+    is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
+    call gaussel_yz_gpu(n(1),n(2),n(3)-q,0,a,b,c,is_periodic_z,normfft,pz,work,pz_aux_1,lambday)
+    !
+    !$acc parallel loop collapse(3) default(present) async(1)
+    do k=1,n(3)
+      do j=1,n(2)
+        do i=1,n(1)
+          py_1(j,k,i) = pz(i,j,k)
+        end do
+      end do
+    end do
+    !
+    if(is_fft(2)) then
+      call fft_gpu('B',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(2,2),py,pfft_tmp_y)
+    else
+      !$acc host_data use_device(eigvecy_bwd,py_1,py_2)
+      istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
+                   eigvecy_bwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
+      !$acc end host_data
+    end if
+    !
+    if(is_fft(2)) then
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n(3)
+        do j=1,n(2)
+          do i=1,n(1)
+            p(i,j,k) = py(j,k,i)
+          end do
+        end do
+      end do
+    else
+      !$acc parallel loop collapse(3) default(present) async(1)
+      do k=1,n(3)
+        do j=1,n(2)
+          do i=1,n(1)
+            p(i,j,k) = py_2(j,k,i)
+          end do
+        end do
+      end do
+    end if
+  end subroutine solver_gaussel_yz_gpu
+  !
+  subroutine gaussel_yz_gpu(nx,ny,n,nh,a,b,c,is_periodic,norm,p,d,p2,lambday)
+    use mod_param, only: eps
+    implicit none
+    integer , intent(in) :: nx,ny,n,nh
+    real(rp), intent(in), dimension(:) :: a,b,c,lambday
+    logical , intent(in) :: is_periodic
+    real(rp), intent(in) :: norm
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
+    real(rp),                dimension(nx,ny,n) :: d,p2
+    real(rp) :: z,lambda
+    integer :: i,j,k,nn
+    !
+    nn = n
+    if(is_periodic) nn = nn-1
+    !$acc parallel loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+    do j=1,ny
+      do i=1,nx
+        lambda = lambday(j)
+        z = 1./(b(1)+lambda+eps)
+        d(i,j,1) = c(1)*z
+        p(i,j,1) = p(i,j,1)*norm*z
+        !$acc loop seq
+        do k=2,nn
+          z        = 1./(b(k)+lambda-a(k)*d(i,j,k-1)+eps)
+          p(i,j,k) = (p(i,j,k)*norm-a(k)*p(i,j,k-1))*z
+          d(i,j,k) = c(k)*z
+        end do
+        !$acc loop seq
+        do k=nn-1,1,-1
+          p(i,j,k) = p(i,j,k) - d(i,j,k)*p(i,j,k+1)
+        end do
+      end do
+    end do
+    if(is_periodic) then
+      !$acc parallel loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+      do j=1,ny
+        do i=1,nx
+          lambda = lambday(j)
+          !$acc loop seq
+          do k=1,nn
+            p2(i,j,k) = 0.
+          end do
+          p2(i,j,1 ) = -a(1 )
+          p2(i,j,nn) = -c(nn)
+          z = 1./(b(1)+lambda+eps)
+          d( i,j,1) = c(1)*z
+          p2(i,j,1) = p2(i,j,1)*z
+          !$acc loop seq
+          do k=2,nn
+            z         = 1./(b(k)+lambda-a(k)*d(i,j,k-1)+eps)
+            p2(i,j,k) = (p2(i,j,k)-a(k)*p2(i,j,k-1))*z
+            d(i,j,k)  = c(k)*z
+          end do
+          !$acc loop seq
+          do k=nn-1,1,-1
+            p2(i,j,k) = p2(i,j,k) - d(i,j,k)*p2(i,j,k+1)
+          end do
+          p(i,j,nn+1) = (p(i,j,nn+1)*norm       - c(nn+1)*p( i,j,1) - a(nn+1)*p( i,j,nn)) / &
+                        (b(    nn+1)      + lambda + c(nn+1)*p2(i,j,1) + a(nn+1)*p2(i,j,nn)+eps)
+          !$acc loop seq
+          do k=1,nn
+            p(i,j,k) = p(i,j,k) + p2(i,j,k)*p(i,j,nn+1)
+          end do
+        end do
+      end do
+    end if
+  end subroutine gaussel_yz_gpu
 #if 0
   subroutine gaussel_ptdma_gpu_fast(nx,ny,n,lo,nh,a_g,b_g,c_g,is_periodic,norm,p,is_update,lambdaxy,aa,bb,cc,aa_z,bb_z,cc_z,pp_z_2)
     !

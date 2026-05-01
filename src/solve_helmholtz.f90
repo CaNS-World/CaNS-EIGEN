@@ -8,13 +8,15 @@ module mod_solve_helmholtz
   use, intrinsic :: iso_c_binding, only: C_PTR
   use mod_types
   use mod_bound, only: updt_rhs_b
-  use mod_param, only: is_impdiff_1d
+  use mod_param, only: impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz
 #if !defined(_OPENACC)
   use mod_solver    , only: solver
   use mod_solver    , only: solver_gaussel_z
+  use mod_solver    , only: solver_gaussel_yz
 #else
   use mod_solver_gpu, only: solver => solver_gpu
   use mod_solver_gpu, only: solver_gaussel_z => solver_gaussel_z_gpu
+  use mod_solver_gpu, only: solver_gaussel_yz => solver_gaussel_yz_gpu
 #endif
   implicit none
   private
@@ -25,8 +27,9 @@ module mod_solve_helmholtz
   end type rhs_bound
   public solve_helmholtz,rhs_bound
   contains
-  subroutine solve_helmholtz(n,ng,hi,is_fft,arrplan,normfft,alpha,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
-                             rhsbx,rhsby,rhsbz,is_bound,cbc,c_or_f,p)
+  subroutine solve_helmholtz(n,ng,hi,is_fft,arrplan,normfft,alpha,lambday,lambdaxy, &
+                             eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                             a,b,c,rhsbx,rhsby,rhsbz,is_bound,cbc,c_or_f,p)
     !
     ! this is a wrapper subroutine to solve 1D/3D helmholtz problems: p/alpha + lap(p) = rhs
     !
@@ -37,8 +40,9 @@ module mod_solve_helmholtz
 #else
     integer    , intent(in   ), dimension(2,2),    optional :: arrplan
 #endif
-    real(rp),    intent(in   ),                    optional :: normfft
+    real(rp),    intent(in   ), dimension(2),      optional :: normfft
     real(rp),    intent(in   )                              :: alpha
+    real(rp),    intent(in   ), dimension(:),      optional :: lambday
     real(rp),    intent(in   ), dimension(:,:),    optional :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
     real(rp),    intent(in   ), dimension(:)                :: a,b,c
     real(rp),    intent(in   ), dimension(:,:,0:), optional :: rhsbx,rhsby,rhsbz
@@ -60,8 +64,6 @@ module mod_solve_helmholtz
       !$acc enter data create(bb) async(1)
     end if
     !
-    call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
-    !
     alphai = alpha**(-1)
     !$acc parallel loop default(present) async(1)
     !$OMP PARALLEL DO   DEFAULT(shared)
@@ -69,10 +71,19 @@ module mod_solve_helmholtz
       bb(k) = b(k) + alphai
     end do
     !
-    if(.not.is_impdiff_1d) then
-      call solver(n,ng,is_fft,arrplan,normfft*alphai,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbc,c_or_f,p)
-    else
+    select case(impdiff_mode)
+    case(impdiff_z)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbz=rhsbz,p=p,alpha=alpha)
       call solver_gaussel_z(n,ng,hi,a,bb,c,cbc(:,3),c_or_f,alphai,p)
-    end if
+    case(impdiff_yz)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsby=rhsby,rhsbz=rhsbz,p=p,alpha=alpha)
+      call solver_gaussel_yz(n,ng,is_fft,arrplan,normfft(2)*alphai, &
+                             lambday,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbc,c_or_f,p)
+    case(impdiff_xyz)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
+      call solver(n,ng,is_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
+                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                  a,bb,c,cbc,c_or_f,p)
+    end select
   end subroutine solve_helmholtz
 end module mod_solve_helmholtz

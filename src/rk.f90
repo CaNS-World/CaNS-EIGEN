@@ -11,10 +11,13 @@ module mod_rk
                        momx_d,momy_d,momz_d, &
                        momx_p,momy_p,momz_p, &
                        cmpt_wallshear, &
+                       momx_d_x ,momy_d_x ,momz_d_x, &
+                       momx_d_yz,momy_d_yz,momz_d_yz, &
                        momx_d_xy,momy_d_xy,momz_d_xy, &
                        momx_d_z ,momy_d_z ,momz_d_z, &
                        mom_xyz_ad
-  use mod_param, only: is_impdiff,is_impdiff_1d,is_boussinesq_buoyancy,is_fast_mom_kernels
+  use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz, &
+                       is_boussinesq_buoyancy,is_fast_mom_kernels
   use mod_scal , only: scal,cmpt_scalflux,scalar
   use mod_utils, only: bulk_mean
   use mod_types
@@ -89,7 +92,7 @@ module mod_rk
           end do
         end do
       end do
-      if(is_impdiff) then
+      if(impdiff_mode /= impdiff_explicit) then
         allocate(dudtrkd(n(1),n(2),n(3)),dvdtrkd(n(1),n(2),n(3)),dwdtrkd(n(1),n(2),n(3)))
         !$acc enter data create(dudtrkd,dvdtrkd,dwdtrkd) async(1)
       end if
@@ -118,7 +121,7 @@ module mod_rk
           end do
         end do
       end do
-      if(.not.is_impdiff) then
+      if(impdiff_mode == impdiff_explicit) then
         call momx_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrk)
         call momy_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrk)
         call momz_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrk)
@@ -134,18 +137,26 @@ module mod_rk
             end do
           end do
         end do
-        if(.not.is_impdiff_1d) then
-          call momx_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
-          call momy_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
-          call momz_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
-        else
+        select case(impdiff_mode)
+        case(impdiff_z)
           call momx_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,u,dudtrk)
           call momy_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,v,dvdtrk)
           call momz_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,w,dwdtrk)
           call momx_d_z( n(1),n(2),n(3),dzci,dzfi,visc,u,dudtrkd)
           call momy_d_z( n(1),n(2),n(3),dzci,dzfi,visc,v,dvdtrkd)
           call momz_d_z( n(1),n(2),n(3),dzci,dzfi,visc,w,dwdtrkd)
-        end if
+        case(impdiff_yz)
+          call momx_d_x( n(1),n(2),n(3),dxci,dxfi,visc,u,dudtrk)
+          call momy_d_x( n(1),n(2),n(3),dxci,dxfi,visc,v,dvdtrk)
+          call momz_d_x( n(1),n(2),n(3),dxci,dxfi,visc,w,dwdtrk)
+          call momx_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
+          call momy_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
+          call momz_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
+        case(impdiff_xyz)
+          call momx_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
+          call momy_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
+          call momz_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
+        end select
       end if
       call momx_a(n(1),n(2),n(3),dxci,dxfi,dyfi,dzfi,u,v,w,dudtrk)
       call momy_a(n(1),n(2),n(3),dxfi,dyci,dyfi,dzfi,u,v,w,dvdtrk)
@@ -176,7 +187,7 @@ module mod_rk
             w(i,j,k) = w(i,j,k) - factor12*gacc(3)*beta*0.5*(s(i,j,k+1)+s(i,j,k))
           end if
           !
-          if(is_impdiff) then
+          if(impdiff_mode /= impdiff_explicit) then
             u(i,j,k) = u(i,j,k) + factor12*dudtrkd(i,j,k)
             v(i,j,k) = v(i,j,k) + factor12*dvdtrkd(i,j,k)
             w(i,j,k) = w(i,j,k) + factor12*dwdtrkd(i,j,k)
@@ -185,7 +196,7 @@ module mod_rk
       end do
     end do
 #else
-    if(.not.is_impdiff .and. .not.is_buoyancy) then
+    if(impdiff_mode == impdiff_explicit .and. .not.is_buoyancy) then
       !$acc parallel loop collapse(3) default(present) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
       do k=1,n(3)
@@ -200,7 +211,7 @@ module mod_rk
           end do
         end do
       end do
-    else if(is_impdiff .and. .not.is_buoyancy) then
+    else if(impdiff_mode /= impdiff_explicit .and. .not.is_buoyancy) then
       !$acc parallel loop collapse(3) default(present) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
       do k=1,n(3)
@@ -218,7 +229,7 @@ module mod_rk
           end do
         end do
       end do
-    else if(.not.is_impdiff .and. is_buoyancy) then
+    else if(impdiff_mode == impdiff_explicit .and. is_buoyancy) then
       !$acc parallel loop collapse(3) default(present) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
       do k=1,n(3)
@@ -306,7 +317,7 @@ module mod_rk
     !
     call cmpt_bulk_forcing(n,l,is_forced,velf,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,f)
     !
-    if(is_impdiff) then
+    if(impdiff_mode /= impdiff_explicit) then
       !
       ! compute rhs of Helmholtz equation
       !
@@ -379,7 +390,7 @@ module mod_rk
           end do
         end do
       end do
-      if(is_impdiff) then
+      if(impdiff_mode /= impdiff_explicit) then
         allocate(dsdtrkd(n(1),n(2),n(3)))
         !$acc enter data create(dsdtrkd) async(1)
         !$acc parallel loop collapse(3) default(present) async(1)
@@ -407,14 +418,14 @@ module mod_rk
       do j=1,n(2)
         do i=1,n(1)
           s(i,j,k) = s(i,j,k) + factor1*dsdtrk(i,j,k) + factor2*dsdtrko(i,j,k) + factor12*ssource
-          if(is_impdiff) then
+          if(impdiff_mode /= impdiff_explicit) then
             s(i,j,k) = s(i,j,k) + factor12*dsdtrkd(i,j,k)
           end if
         end do
       end do
     end do
 #else
-    if(.not.is_impdiff) then
+    if(impdiff_mode == impdiff_explicit) then
       !$acc parallel loop collapse(3) default(present) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
       do k=1,n(3)
@@ -453,7 +464,7 @@ module mod_rk
       call bulk_mean(n,l,dxf,dyf,dzf,s(:,:,:),mean)
       f = scalf - mean
     end if
-    if(is_impdiff) then
+    if(impdiff_mode /= impdiff_explicit) then
       !
       ! compute rhs of Helmholtz equation
       !
@@ -542,7 +553,7 @@ module mod_rk
     taux_tot(:) = sum(taux(0:1,:),1); tauxo_tot(:) = sum(tauxo(0:1,:),1)
     tauy_tot(:) = sum(tauy(0:1,:),1); tauyo_tot(:) = sum(tauyo(0:1,:),1)
     tauz_tot(:) = sum(tauz(0:1,:),1); tauzo_tot(:) = sum(tauzo(0:1,:),1)
-    if(.not.is_impdiff) then
+    if(impdiff_mode == impdiff_explicit) then
       if(is_first) then
         f(1) = (factor1*sum(taux_tot(:)/l(:)) + factor2*sum(tauxo_tot(:)/l(:)))
         f(2) = (factor1*sum(tauy_tot(:)/l(:)) + factor2*sum(tauyo_tot(:)/l(:)))
@@ -552,7 +563,7 @@ module mod_rk
         tauzo(:,:) = tauz(:,:)
       end if
     else
-      if(is_impdiff_1d) then
+      if(impdiff_mode == impdiff_z) then
         f_aux(1) = factor12*taux_tot(3)/l(3)
         f_aux(2) = factor12*tauy_tot(3)/l(3)
         if(is_first) then
@@ -565,6 +576,20 @@ module mod_rk
         else
           f(1) = f(1) + f_aux(1)
           f(2) = f(2) + f_aux(2)
+        end if
+      else if(impdiff_mode == impdiff_yz) then
+        f_aux(1) = factor12*sum(taux_tot(2:3)/l(2:3))
+        f_aux(2) = factor12*sum(tauy_tot(2:3)/l(2:3))
+        f_aux(3) = factor12*sum(tauz_tot(2:3)/l(2:3))
+        if(is_first) then
+          f(1) = factor1*taux_tot(1)/l(1) + factor2*tauxo_tot(1)/l(1) + f_aux(1)
+          f(2) = factor1*tauy_tot(1)/l(1) + factor2*tauyo_tot(1)/l(1) + f_aux(2)
+          f(3) = factor1*tauz_tot(1)/l(1) + factor2*tauzo_tot(1)/l(1) + f_aux(3)
+          tauxo(:,1) = taux(:,1)
+          tauyo(:,1) = tauy(:,1)
+          tauzo(:,1) = tauz(:,1)
+        else
+          f(:) = f(:) + f_aux(:)
         end if
       else
         f_aux(:) = factor12*[sum(taux_tot(:)/l(:)), &

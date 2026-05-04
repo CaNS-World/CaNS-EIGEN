@@ -15,6 +15,8 @@ module mod_mom
          momx_d,momy_d,momz_d, &
          momx_p,momy_p,momz_p, &
          cmpt_wallshear,bulk_forcing, &
+         momx_d_x ,momy_d_x ,momz_d_x, &
+         momx_d_yz,momy_d_yz,momz_d_yz, &
          momx_d_xy,momy_d_xy,momz_d_xy, &
          momx_d_z ,momy_d_z ,momz_d_z, &
          mom_xyz_ad
@@ -473,6 +475,156 @@ module mod_mom
     end do
   end subroutine momz_d_z
   !
+  subroutine momx_d_x(nx,ny,nz,dxci,dxfi,visc,u,dudt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
+    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp) :: dudxp,dudxm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dudxp,dudxm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudxp,dudxm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dudxp = (u(i+1,j,k)-u(i,j,k))*dxfi(i+1)
+          dudxm = (u(i,j,k)-u(i-1,j,k))*dxfi(i  )
+          dudt(i,j,k) = dudt(i,j,k) + (dudxp-dudxm)*visc*dxci(i)
+        end do
+      end do
+    end do
+  end subroutine momx_d_x
+  !
+  subroutine momy_d_x(nx,ny,nz,dxci,dxfi,visc,v,dvdt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
+    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp) :: dvdxp,dvdxm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dvdxp,dvdxm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdxp,dvdxm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dvdxp = (v(i+1,j,k)-v(i,j,k))*dxci(i  )
+          dvdxm = (v(i,j,k)-v(i-1,j,k))*dxci(i-1)
+          dvdt(i,j,k) = dvdt(i,j,k) + (dvdxp-dvdxm)*visc*dxfi(i)
+        end do
+      end do
+    end do
+  end subroutine momy_d_x
+  !
+  subroutine momz_d_x(nx,ny,nz,dxci,dxfi,visc,w,dwdt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
+    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp) :: dwdxp,dwdxm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dwdxp,dwdxm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdxp,dwdxm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dwdxp = (w(i+1,j,k)-w(i,j,k))*dxci(i  )
+          dwdxm = (w(i,j,k)-w(i-1,j,k))*dxci(i-1)
+          dwdt(i,j,k) = dwdt(i,j,k) + (dwdxp-dwdxm)*visc*dxfi(i)
+        end do
+      end do
+    end do
+  end subroutine momz_d_x
+  !
+  subroutine momx_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,u,dudt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
+    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp) :: dudyp,dudym,dudzp,dudzm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dudyp,dudym,dudzp,dudzm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudyp,dudym,dudzp,dudzm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dudyp = (u(i,j+1,k)-u(i,j,k))*dyci(j  )
+          dudym = (u(i,j,k)-u(i,j-1,k))*dyci(j-1)
+          dudzp = (u(i,j,k+1)-u(i,j,k))*dzci(k  )
+          dudzm = (u(i,j,k)-u(i,j,k-1))*dzci(k-1)
+          dudt(i,j,k) = dudt(i,j,k) + &
+                        (dudyp-dudym)*visc*dyfi(j) + &
+                        (dudzp-dudzm)*visc*dzfi(k)
+        end do
+      end do
+    end do
+  end subroutine momx_d_yz
+  !
+  subroutine momy_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
+    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp) :: dvdyp,dvdym,dvdzp,dvdzm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dvdyp,dvdym,dvdzp,dvdzm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdyp,dvdym,dvdzp,dvdzm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dvdyp = (v(i,j+1,k)-v(i,j,k))*dyfi(j+1)
+          dvdym = (v(i,j,k)-v(i,j-1,k))*dyfi(j  )
+          dvdzp = (v(i,j,k+1)-v(i,j,k))*dzci(k  )
+          dvdzm = (v(i,j,k)-v(i,j,k-1))*dzci(k-1)
+          dvdt(i,j,k) = dvdt(i,j,k) + &
+                        (dvdyp-dvdym)*visc*dyci(j) + &
+                        (dvdzp-dvdzm)*visc*dzfi(k)
+        end do
+      end do
+    end do
+  end subroutine momy_d_yz
+  !
+  subroutine momz_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
+    implicit none
+    integer , intent(in) :: nx,ny,nz
+    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    real(rp), intent(in) :: visc
+    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
+    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp) :: dwdyp,dwdym,dwdzp,dwdzm
+    integer :: i,j,k
+    !
+    !$acc parallel loop collapse(3) default(present) private(dwdyp,dwdym,dwdzp,dwdzm) async(1)
+    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdyp,dwdym,dwdzp,dwdzm)
+    do k=1,nz
+      do j=1,ny
+        do i=1,nx
+          dwdyp = (w(i,j+1,k)-w(i,j,k))*dyci(j  )
+          dwdym = (w(i,j,k)-w(i,j-1,k))*dyci(j-1)
+          dwdzp = (w(i,j,k+1)-w(i,j,k))*dzfi(k+1)
+          dwdzm = (w(i,j,k)-w(i,j,k-1))*dzfi(k  )
+          dwdt(i,j,k) = dwdt(i,j,k) + &
+                        (dwdyp-dwdym)*visc*dyfi(j) + &
+                        (dwdzp-dwdzm)*visc*dzci(k)
+        end do
+      end do
+    end do
+  end subroutine momz_d_yz
+  !
   subroutine momx_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
@@ -783,7 +935,7 @@ module mod_mom
   !
   subroutine mom_xyz_ad(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
                         dudt,dvdt,dwdt,dudtd,dvdtd,dwdtd)
-    use mod_param, only: is_impdiff,is_impdiff_1d
+    use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz
     !
     ! lump all r.h.s. of momentum terms (excluding pressure) into a single fast kernel
     !
@@ -806,9 +958,9 @@ module mod_mom
                 dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm
     real(rp) :: dudt_s ,dvdt_s ,dwdt_s , &
                 dudtd_s,dvdtd_s,dwdtd_s, &
-                dudtd_xy_s,dudtd_z_s   , &
-                dvdtd_xy_s,dvdtd_z_s   , &
-                dwdtd_xy_s,dwdtd_z_s
+                dudtd_x_s,dudtd_y_s,dudtd_z_s, &
+                dvdtd_x_s,dvdtd_y_s,dvdtd_z_s, &
+                dwdtd_x_s,dwdtd_y_s,dwdtd_z_s
     real(rp), allocatable, dimension(:), save :: rdxm,rdxp,rdym,rdyp,rdzm,rdzp
     !
     if(.not.allocated(rdxm) .and. .not.allocated(rdxp)) then
@@ -851,9 +1003,7 @@ module mod_mom
     !$acc private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
     !$acc private(dudt_s ,dvdt_s ,dwdt_s ) &
     !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
-    !$acc private(dudtd_xy_s,dudtd_z_s) &
-    !$acc private(dvdtd_xy_s,dvdtd_z_s) &
-    !$acc private(dwdtd_xy_s,dwdtd_z_s)
+    !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
     !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
     !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -866,9 +1016,7 @@ module mod_mom
     !$OMP PRIVATE(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
     !$OMP PRIVATE(dudt_s ,dvdt_s ,dwdt_s ) &
     !$OMP PRIVATE(dudtd_s,dvdtd_s,dwdtd_s) &
-    !$OMP PRIVATE(dudtd_xy_s,dudtd_z_s) &
-    !$OMP PRIVATE(dvdtd_xy_s,dvdtd_z_s) &
-    !$OMP PRIVATE(dwdtd_xy_s,dwdtd_z_s)
+    !$OMP PRIVATE(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -941,11 +1089,9 @@ module mod_mom
           wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
           wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
           !
-          dudtd_xy_s = &
-                         visc*(dudxp-dudxm)*dxci(i) + &
-                         visc*(dudyp-dudym)*dyfi(j)
-          dudtd_z_s  = &
-                         visc*(dudzp-dudzm)*dzfi(k)
+          dudtd_x_s = visc*(dudxp-dudxm)*dxci(i)
+          dudtd_y_s = visc*(dudyp-dudym)*dyfi(j)
+          dudtd_z_s = visc*(dudzp-dudzm)*dzfi(k)
           dudt_s     = &
                              -(uuip-uuim)*dxci(i) - &
                               (vujp-vujm)*dyfi(j) - &
@@ -975,11 +1121,9 @@ module mod_mom
           wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
           wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
           !
-          dvdtd_xy_s = &
-                         visc*(dvdxp-dvdxm)*dxfi(i) + &
-                         visc*(dvdyp-dvdym)*dyci(j)
-          dvdtd_z_s  = &
-                         visc*(dvdzp-dvdzm)*dzfi(k)
+          dvdtd_x_s = visc*(dvdxp-dvdxm)*dxfi(i)
+          dvdtd_y_s = visc*(dvdyp-dvdym)*dyci(j)
+          dvdtd_z_s = visc*(dvdzp-dvdzm)*dzfi(k)
           dvdt_s     = &
                              -(uvip-uvim)*dxfi(i) - &
                               (vvjp-vvjm)*dyci(j) - &
@@ -1009,28 +1153,34 @@ module mod_mom
           wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
           wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
           !
-          dwdtd_xy_s =  &
-                          visc*(dwdxp-dwdxm)*dxfi(i) + &
-                          visc*(dwdyp-dwdym)*dyfi(j)
-          dwdtd_z_s =   &
-                          visc*(dwdzp-dwdzm)*dzci(k)
+          dwdtd_x_s = visc*(dwdxp-dwdxm)*dxfi(i)
+          dwdtd_y_s = visc*(dwdyp-dwdym)*dyfi(j)
+          dwdtd_z_s = visc*(dwdzp-dwdzm)*dzci(k)
           dwdt_s     =  &
                               -(uwip-uwim)*dxfi(i) - &
                                (vwjp-vwjm)*dyfi(j) - &
                                (wwkp-wwkm)*dzci(k)
-          if(is_impdiff) then
-            if(is_impdiff_1d) then
-              dudt_s = dudt_s + dudtd_xy_s
-              dvdt_s = dvdt_s + dvdtd_xy_s
-              dwdt_s = dwdt_s + dwdtd_xy_s
+          if(impdiff_mode /= impdiff_explicit) then
+            select case(impdiff_mode)
+            case(impdiff_z)
+              dudt_s = dudt_s + dudtd_x_s + dudtd_y_s
+              dvdt_s = dvdt_s + dvdtd_x_s + dvdtd_y_s
+              dwdt_s = dwdt_s + dwdtd_x_s + dwdtd_y_s
               dudtd_s = dudtd_z_s
               dvdtd_s = dvdtd_z_s
               dwdtd_s = dwdtd_z_s
-            else
-              dudtd_s = dudtd_xy_s + dudtd_z_s
-              dvdtd_s = dvdtd_xy_s + dvdtd_z_s
-              dwdtd_s = dwdtd_xy_s + dwdtd_z_s
-            end if
+            case(impdiff_yz)
+              dudt_s = dudt_s + dudtd_x_s
+              dvdt_s = dvdt_s + dvdtd_x_s
+              dwdt_s = dwdt_s + dwdtd_x_s
+              dudtd_s = dudtd_y_s + dudtd_z_s
+              dvdtd_s = dvdtd_y_s + dvdtd_z_s
+              dwdtd_s = dwdtd_y_s + dwdtd_z_s
+            case(impdiff_xyz)
+              dudtd_s = dudtd_x_s + dudtd_y_s + dudtd_z_s
+              dvdtd_s = dvdtd_x_s + dvdtd_y_s + dvdtd_z_s
+              dwdtd_s = dwdtd_x_s + dwdtd_y_s + dwdtd_z_s
+            end select
             dudt( i,j,k) = dudt_s
             dvdt( i,j,k) = dvdt_s
             dwdt( i,j,k) = dwdt_s
@@ -1038,9 +1188,9 @@ module mod_mom
             dvdtd(i,j,k) = dvdtd_s
             dwdtd(i,j,k) = dwdtd_s
           else
-            dudt_s = dudt_s + dudtd_xy_s + dudtd_z_s
-            dvdt_s = dvdt_s + dvdtd_xy_s + dvdtd_z_s
-            dwdt_s = dwdt_s + dwdtd_xy_s + dwdtd_z_s
+            dudt_s = dudt_s + dudtd_x_s + dudtd_y_s + dudtd_z_s
+            dvdt_s = dvdt_s + dvdtd_x_s + dvdtd_y_s + dvdtd_z_s
+            dwdt_s = dwdt_s + dwdtd_x_s + dwdtd_y_s + dwdtd_z_s
             dudt(i,j,k) = dudt_s
             dvdt(i,j,k) = dvdt_s
             dwdt(i,j,k) = dwdt_s
@@ -1049,7 +1199,7 @@ module mod_mom
       end do
     end do
 #else
-    if(.not.is_impdiff) then
+    if(impdiff_mode == impdiff_explicit) then
       !$acc parallel loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1062,9 +1212,7 @@ module mod_mom
       !$acc private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$acc private(dudtd_xy_s,dudtd_z_s) &
-      !$acc private(dvdtd_xy_s,dvdtd_z_s) &
-      !$acc private(dwdtd_xy_s,dwdtd_z_s)
+      !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1077,9 +1225,7 @@ module mod_mom
       !$OMP PRIVATE(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$OMP PRIVATE(dudt_s,dvdt_s,dwdt_s) &
       !$OMP PRIVATE(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$OMP PRIVATE(dudtd_xy_s,dudtd_z_s) &
-      !$OMP PRIVATE(dvdtd_xy_s,dvdtd_z_s) &
-      !$OMP PRIVATE(dwdtd_xy_s,dwdtd_z_s)
+      !$OMP PRIVATE(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       do k=1,nz
         do j=1,ny
           do i=1,nx
@@ -1140,7 +1286,8 @@ module mod_mom
             vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
             wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
             wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
+            dudtd_x_s  = visc*(dudxp-dudxm)*dxci(i)
+            dudtd_y_s  = visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
             dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
             dvdxp = (v_pcc-v_ccc)*dxci(i  )
@@ -1161,7 +1308,8 @@ module mod_mom
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
             wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
             wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
+            dvdtd_x_s  = visc*(dvdxp-dvdxm)*dxfi(i)
+            dvdtd_y_s  = visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
             dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
             dwdxp = (w_pcc-w_ccc)*dxci(i  )
@@ -1182,19 +1330,20 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
+            dwdtd_x_s  = visc*(dwdxp-dwdxm)*dxfi(i)
+            dwdtd_y_s  = visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
             dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
-            dudt_s = dudt_s + dudtd_xy_s + dudtd_z_s
-            dvdt_s = dvdt_s + dvdtd_xy_s + dvdtd_z_s
-            dwdt_s = dwdt_s + dwdtd_xy_s + dwdtd_z_s
+            dudt_s = dudt_s + dudtd_x_s + dudtd_y_s + dudtd_z_s
+            dvdt_s = dvdt_s + dvdtd_x_s + dvdtd_y_s + dvdtd_z_s
+            dwdt_s = dwdt_s + dwdtd_x_s + dwdtd_y_s + dwdtd_z_s
             dudt(i,j,k) = dudt_s
             dvdt(i,j,k) = dvdt_s
             dwdt(i,j,k) = dwdt_s
           end do
         end do
       end do
-    else if(is_impdiff .and. is_impdiff_1d) then
+    else if(impdiff_mode == impdiff_z) then
       !$acc parallel loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1207,9 +1356,7 @@ module mod_mom
       !$acc private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$acc private(dudtd_xy_s,dudtd_z_s) &
-      !$acc private(dvdtd_xy_s,dvdtd_z_s) &
-      !$acc private(dwdtd_xy_s,dwdtd_z_s)
+      !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1222,9 +1369,7 @@ module mod_mom
       !$OMP PRIVATE(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$OMP PRIVATE(dudt_s,dvdt_s,dwdt_s) &
       !$OMP PRIVATE(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$OMP PRIVATE(dudtd_xy_s,dudtd_z_s) &
-      !$OMP PRIVATE(dvdtd_xy_s,dvdtd_z_s) &
-      !$OMP PRIVATE(dwdtd_xy_s,dwdtd_z_s)
+      !$OMP PRIVATE(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       do k=1,nz
         do j=1,ny
           do i=1,nx
@@ -1285,7 +1430,8 @@ module mod_mom
             vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
             wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
             wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
+            dudtd_x_s  = visc*(dudxp-dudxm)*dxci(i)
+            dudtd_y_s  = visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
             dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
             dvdxp = (v_pcc-v_ccc)*dxci(i  )
@@ -1306,7 +1452,8 @@ module mod_mom
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
             wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
             wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
+            dvdtd_x_s  = visc*(dvdxp-dvdxm)*dxfi(i)
+            dvdtd_y_s  = visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
             dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
             dwdxp = (w_pcc-w_ccc)*dxci(i  )
@@ -1327,12 +1474,13 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
+            dwdtd_x_s  = visc*(dwdxp-dwdxm)*dxfi(i)
+            dwdtd_y_s  = visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
             dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
-            dudt_s = dudt_s + dudtd_xy_s
-            dvdt_s = dvdt_s + dvdtd_xy_s
-            dwdt_s = dwdt_s + dwdtd_xy_s
+            dudt_s = dudt_s + dudtd_x_s + dudtd_y_s
+            dvdt_s = dvdt_s + dvdtd_x_s + dvdtd_y_s
+            dwdt_s = dwdt_s + dwdtd_x_s + dwdtd_y_s
             dudtd_s = dudtd_z_s
             dvdtd_s = dvdtd_z_s
             dwdtd_s = dwdtd_z_s
@@ -1345,7 +1493,7 @@ module mod_mom
           end do
         end do
       end do
-    else if(is_impdiff) then
+    else if(impdiff_mode /= impdiff_explicit) then
       !$acc parallel loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1358,9 +1506,7 @@ module mod_mom
       !$acc private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$acc private(dudtd_xy_s,dudtd_z_s) &
-      !$acc private(dvdtd_xy_s,dvdtd_z_s) &
-      !$acc private(dwdtd_xy_s,dwdtd_z_s)
+      !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
@@ -1373,9 +1519,7 @@ module mod_mom
       !$OMP PRIVATE(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) &
       !$OMP PRIVATE(dudt_s,dvdt_s,dwdt_s) &
       !$OMP PRIVATE(dudtd_s,dvdtd_s,dwdtd_s) &
-      !$OMP PRIVATE(dudtd_xy_s,dudtd_z_s) &
-      !$OMP PRIVATE(dvdtd_xy_s,dvdtd_z_s) &
-      !$OMP PRIVATE(dwdtd_xy_s,dwdtd_z_s)
+      !$OMP PRIVATE(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
       do k=1,nz
         do j=1,ny
           do i=1,nx
@@ -1436,7 +1580,8 @@ module mod_mom
             vujm = 0.25*(rdxm(i)*v_cmc+rdxp(i)*v_pmc)*u_cmc
             wukp = 0.25*(rdxm(i)*w_ccc+rdxp(i)*w_pcc)*u_ccp
             wukm = 0.25*(rdxm(i)*w_ccm+rdxp(i)*w_pcm)*u_ccm
-            dudtd_xy_s = visc*(dudxp-dudxm)*dxci(i) + visc*(dudyp-dudym)*dyfi(j)
+            dudtd_x_s  = visc*(dudxp-dudxm)*dxci(i)
+            dudtd_y_s  = visc*(dudyp-dudym)*dyfi(j)
             dudtd_z_s  = visc*(dudzp-dudzm)*dzfi(k)
             dudt_s     = -(uuip-uuim)*dxci(i) - (vujp-vujm)*dyfi(j) - (wukp-wukm)*dzfi(k)
             dvdxp = (v_pcc-v_ccc)*dxci(i  )
@@ -1457,7 +1602,8 @@ module mod_mom
             vvjm = 0.25*(v_ccc+v_cmc)*v_cmc
             wvkp = 0.25*(rdym(j)*w_ccc+rdyp(j)*w_cpc)*v_ccp
             wvkm = 0.25*(rdym(j)*w_ccm+rdyp(j)*w_cpm)*v_ccm
-            dvdtd_xy_s = visc*(dvdxp-dvdxm)*dxfi(i) + visc*(dvdyp-dvdym)*dyci(j)
+            dvdtd_x_s  = visc*(dvdxp-dvdxm)*dxfi(i)
+            dvdtd_y_s  = visc*(dvdyp-dvdym)*dyci(j)
             dvdtd_z_s  = visc*(dvdzp-dvdzm)*dzfi(k)
             dvdt_s     = -(uvip-uvim)*dxfi(i) - (vvjp-vvjm)*dyci(j) - (wvkp-wvkm)*dzfi(k)
             dwdxp = (w_pcc-w_ccc)*dxci(i  )
@@ -1478,12 +1624,22 @@ module mod_mom
             vwjm = 0.25*(rdzm(k)*v_cmc+rdzp(k)*v_cmp)*w_cmc
             wwkp = 0.25*(w_ccc+w_ccp)*w_ccp
             wwkm = 0.25*(w_ccc+w_ccm)*w_ccm
-            dwdtd_xy_s = visc*(dwdxp-dwdxm)*dxfi(i) + visc*(dwdyp-dwdym)*dyfi(j)
+            dwdtd_x_s  = visc*(dwdxp-dwdxm)*dxfi(i)
+            dwdtd_y_s  = visc*(dwdyp-dwdym)*dyfi(j)
             dwdtd_z_s  = visc*(dwdzp-dwdzm)*dzci(k)
             dwdt_s     = -(uwip-uwim)*dxfi(i) - (vwjp-vwjm)*dyfi(j) - (wwkp-wwkm)*dzci(k)
-            dudtd_s = dudtd_xy_s + dudtd_z_s
-            dvdtd_s = dvdtd_xy_s + dvdtd_z_s
-            dwdtd_s = dwdtd_xy_s + dwdtd_z_s
+            if(impdiff_mode == impdiff_yz) then
+              dudt_s = dudt_s + dudtd_x_s
+              dvdt_s = dvdt_s + dvdtd_x_s
+              dwdt_s = dwdt_s + dwdtd_x_s
+              dudtd_s = dudtd_y_s + dudtd_z_s
+              dvdtd_s = dvdtd_y_s + dvdtd_z_s
+              dwdtd_s = dwdtd_y_s + dwdtd_z_s
+            else
+              dudtd_s = dudtd_x_s + dudtd_y_s + dudtd_z_s
+              dvdtd_s = dvdtd_x_s + dvdtd_y_s + dvdtd_z_s
+              dwdtd_s = dwdtd_x_s + dwdtd_y_s + dwdtd_z_s
+            end if
             dudt(i,j,k) = dudt_s
             dvdt(i,j,k) = dvdt_s
             dwdt(i,j,k) = dwdt_s

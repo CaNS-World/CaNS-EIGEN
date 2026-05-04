@@ -63,7 +63,7 @@ program cans
                                  read_input, &
                                  is_debug,is_debug_poisson, &
                                  is_timing, &
-                                 is_impdiff,is_impdiff_1d, &
+                                 impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz, &
                                  is_poisson_pcr_tdma,is_poisson_fft, &
                                  is_mask_divergence_check
   use mod_sanity         , only: test_sanity_input,test_sanity_grid,test_sanity_solver
@@ -94,13 +94,14 @@ program cans
 #else
   integer    , dimension(2,2) :: arrplanp
 #endif
+  real(rp), allocatable, dimension(:) :: lambdaxp_g,lambdayp_g
   real(rp), allocatable, dimension(:,:) :: lambdaxyp
   real(rp), allocatable, dimension(:,:) :: eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd
   real(rp), allocatable, dimension(:) :: ap,bp,cp
   integer , dimension(3) :: n_z_d
   real(rp), allocatable, dimension(:,:,:) :: ap_d,cp_d
   logical :: is_ptdma_update_p
-  real(rp) :: normfftp
+  real(rp), dimension(2) :: normfftp
   type(rhs_bound) :: rhsbp
   real(rp) :: alpha
 #if !defined(_OPENACC) || defined(_USE_HIP)
@@ -108,12 +109,13 @@ program cans
 #else
   integer    , dimension(2,2) :: arrplanu,arrplanv,arrplanw
 #endif
+  real(rp), allocatable, dimension(:) :: lambdaxu_g,lambdayu_g,lambdaxv_g,lambdayv_g,lambdaxw_g,lambdayw_g
   real(rp), allocatable, dimension(:,:) :: lambdaxyu,lambdaxyv,lambdaxyw
   real(rp), allocatable, dimension(:,:) :: eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd, &
                                            eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd, &
                                            eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd
   real(rp), allocatable, dimension(:) :: au,av,aw,bu,bv,bw,cu,cv,cw
-  real(rp) :: normfftu,normfftv,normfftw
+  real(rp), dimension(2) :: normfftu,normfftv,normfftw
   type(rhs_bound) :: rhsbu,rhsbv,rhsbw
   !
   real(rp) :: dt,dti,dt_cfl,time,dtrk,dtrki,divtot,divmax
@@ -177,7 +179,7 @@ program cans
   allocate(dudtrko(n(1),n(2),n(3)), &
            dvdtrko(n(1),n(2),n(3)), &
            dwdtrko(n(1),n(2),n(3)))
-  allocate(lambdaxyp(n_z(1),n_z(2)))
+  allocate(lambdaxp_g(ng(1)),lambdayp_g(ng(2)),lambdaxyp(n_z(1),n_z(2)))
   allocate(eigvecxp_fwd(ng(1),ng(1)),eigvecxp_bwd(ng(1),ng(1)), &
            eigvecyp_fwd(ng(2),ng(2)),eigvecyp_bwd(ng(2),ng(2)))
   allocate(ap(n_z(3)),bp(n_z(3)),cp(n_z(3)))
@@ -217,7 +219,10 @@ program cans
   allocate(rhsbp%x(n(2),n(3),0:1), &
            rhsbp%y(n(1),n(3),0:1), &
            rhsbp%z(n(1),n(2),0:1))
-  if(is_impdiff) then
+  if(impdiff_mode /= impdiff_explicit) then
+    allocate(lambdaxu_g(ng(1)),lambdayu_g(ng(2)), &
+             lambdaxv_g(ng(1)),lambdayv_g(ng(2)), &
+             lambdaxw_g(ng(1)),lambdayw_g(ng(2)))
     allocate(lambdaxyu(n_z(1),n_z(2)), &
              lambdaxyv(n_z(1),n_z(2)), &
              lambdaxyw(n_z(1),n_z(2)))
@@ -348,54 +353,110 @@ program cans
   ! initialize Poisson solver
   !
   call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                  cbcpre,bcpre(:,:),lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
+                  cbcpre,bcpre(:,:),lambdaxp_g,lambdayp_g,lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
                   ['c','c','c'],ap,bp,cp,arrplanp,normfftp,rhsbp%x,rhsbp%y,rhsbp%z)
+  deallocate(lambdaxp_g,lambdayp_g)
   !$acc enter data copyin(lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd,ap,bp,cp) async
   !$acc enter data copyin(rhsbp,rhsbp%x,rhsbp%y,rhsbp%z) async
   if(is_poisson_pcr_tdma) then
     !$acc enter data create(ap_d,cp_d) async
   end if
   !$acc wait
-  if(is_impdiff) then
+  if(impdiff_mode /= impdiff_explicit) then
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                    cbcvel(:,:,1),bcvel(:,:,1),lambdaxyu,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd, &
+                    cbcvel(:,:,1),bcvel(:,:,1),lambdaxu_g,lambdayu_g,lambdaxyu, &
+                    eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd, &
                     ['f','c','c'],au,bu,cu,arrplanu,normfftu,rhsbu%x,rhsbu%y,rhsbu%z)
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                    cbcvel(:,:,2),bcvel(:,:,2),lambdaxyv,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd, &
+                    cbcvel(:,:,2),bcvel(:,:,2),lambdaxv_g,lambdayv_g,lambdaxyv, &
+                    eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd, &
                     ['c','f','c'],av,bv,cv,arrplanv,normfftv,rhsbv%x,rhsbv%y,rhsbv%z)
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                    cbcvel(:,:,3),bcvel(:,:,3),lambdaxyw,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd, &
+                    cbcvel(:,:,3),bcvel(:,:,3),lambdaxw_g,lambdayw_g,lambdaxyw, &
+                    eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd, &
                     ['c','c','f'],aw,bw,cw,arrplanw,normfftw,rhsbw%x,rhsbw%y,rhsbw%z)
     do iscal=1,nscal
       s => scalars(iscal)
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      s%cbc,s%bc,s%lambdaxy,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd, &
+                      s%cbc,s%bc,s%lambdax_g,s%lambday_g,s%lambdaxy,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd, &
                       ['c','c','c'],s%a,s%b,s%c,s%arrplan,s%normfft,s%rhsb%x,s%rhsb%y,s%rhsb%z)
     end do
-    if(is_impdiff_1d) then
+    if(impdiff_mode == impdiff_z .or. impdiff_mode == impdiff_yz) then
+      deallocate(lambdaxu_g,lambdaxv_g,lambdaxw_g)
       deallocate(lambdaxyu,lambdaxyv,lambdaxyw)
-      call fftend(arrplanu)
-      call fftend(arrplanv)
-      call fftend(arrplanw)
-      deallocate(rhsbu%x,rhsbu%y,rhsbv%x,rhsbv%y,rhsbw%x,rhsbw%y)
+      deallocate(eigvecxu_fwd,eigvecxu_bwd,eigvecxv_fwd,eigvecxv_bwd,eigvecxw_fwd,eigvecxw_bwd)
+      call fftend(arrplanu,idir=1)
+      call fftend(arrplanv,idir=1)
+      call fftend(arrplanw,idir=1)
+      deallocate(rhsbu%x,rhsbv%x,rhsbw%x)
       do iscal=1,nscal
         s => scalars(iscal)
-        deallocate(s%rhsb%x,s%rhsb%y)
+        deallocate(s%lambdax_g)
+        deallocate(s%rhsb%x)
         deallocate(s%lambdaxy)
-        call fftend(s%arrplan)
+        deallocate(s%eigvecx_fwd,s%eigvecx_bwd)
+        call fftend(s%arrplan,idir=1)
       end do
     end if
-    !$acc enter data copyin(lambdaxyu,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu) async
-    !$acc enter data copyin(lambdaxyv,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv) async
-    !$acc enter data copyin(lambdaxyw,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw) async
-    !$acc enter data copyin(rhsbu,rhsbu%x,rhsbu%y,rhsbu%z) async
-    !$acc enter data copyin(rhsbv,rhsbv%x,rhsbv%y,rhsbv%z) async
-    !$acc enter data copyin(rhsbw,rhsbw%x,rhsbw%y,rhsbw%z) async
-    do iscal=1,nscal
-      s => scalars(iscal)
-      !$acc enter data copyin(s%lambdaxy,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c) async
-      !$acc enter data copyin(s%rhsb,s%rhsb%x,s%rhsb%y,s%rhsb%z) async
-    end do
+    if(impdiff_mode == impdiff_z) then
+      deallocate(lambdayu_g,lambdayv_g,lambdayw_g)
+      deallocate(eigvecyu_fwd,eigvecyu_bwd,eigvecyv_fwd,eigvecyv_bwd,eigvecyw_fwd,eigvecyw_bwd)
+      call fftend(arrplanu,idir=2)
+      call fftend(arrplanv,idir=2)
+      call fftend(arrplanw,idir=2)
+      deallocate(rhsbu%y,rhsbv%y,rhsbw%y)
+      do iscal=1,nscal
+        s => scalars(iscal)
+        deallocate(s%lambday_g)
+        deallocate(s%rhsb%y)
+        deallocate(s%eigvecy_fwd,s%eigvecy_bwd)
+        call fftend(s%arrplan,idir=2)
+      end do
+    else if(impdiff_mode == impdiff_xyz) then
+      deallocate(lambdaxu_g,lambdayu_g,lambdaxv_g,lambdayv_g,lambdaxw_g,lambdayw_g)
+      do iscal=1,nscal
+        s => scalars(iscal)
+        deallocate(s%lambdax_g,s%lambday_g)
+      end do
+    end if
+    select case(impdiff_mode)
+    case(impdiff_z)
+      !$acc enter data copyin(au,bu,cu) async
+      !$acc enter data copyin(av,bv,cv) async
+      !$acc enter data copyin(aw,bw,cw) async
+      !$acc enter data copyin(rhsbu,rhsbu%z) async
+      !$acc enter data copyin(rhsbv,rhsbv%z) async
+      !$acc enter data copyin(rhsbw,rhsbw%z) async
+      do iscal=1,nscal
+        s => scalars(iscal)
+        !$acc enter data copyin(s%a,s%b,s%c) async
+        !$acc enter data copyin(s%rhsb,s%rhsb%z) async
+      end do
+    case(impdiff_yz)
+      !$acc enter data copyin(lambdayu_g,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu) async
+      !$acc enter data copyin(lambdayv_g,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv) async
+      !$acc enter data copyin(lambdayw_g,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw) async
+      !$acc enter data copyin(rhsbu,rhsbu%y,rhsbu%z) async
+      !$acc enter data copyin(rhsbv,rhsbv%y,rhsbv%z) async
+      !$acc enter data copyin(rhsbw,rhsbw%y,rhsbw%z) async
+      do iscal=1,nscal
+        s => scalars(iscal)
+        !$acc enter data copyin(s%lambday_g,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c) async
+        !$acc enter data copyin(s%rhsb,s%rhsb%y,s%rhsb%z) async
+      end do
+    case(impdiff_xyz)
+      !$acc enter data copyin(lambdaxyu,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu) async
+      !$acc enter data copyin(lambdaxyv,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv) async
+      !$acc enter data copyin(lambdaxyw,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw) async
+      !$acc enter data copyin(rhsbu,rhsbu%x,rhsbu%y,rhsbu%z) async
+      !$acc enter data copyin(rhsbv,rhsbv%x,rhsbv%y,rhsbv%z) async
+      !$acc enter data copyin(rhsbw,rhsbw%x,rhsbw%y,rhsbw%z) async
+      do iscal=1,nscal
+        s => scalars(iscal)
+        !$acc enter data copyin(s%lambdaxy,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c) async
+        !$acc enter data copyin(s%rhsb,s%rhsb%x,s%rhsb%y,s%rhsb%z) async
+      end do
+    end select
     !$acc wait
   end if
 #if defined(_OPENACC)
@@ -404,7 +465,7 @@ program cans
   !
   call init_wspace_arrays()
   call set_cufft_wspace(pack(arrplanp,.true.),istream_acc_queue_1)
-  if(is_impdiff .and. .not.is_impdiff_1d) then
+  if(impdiff_mode == impdiff_yz .or. impdiff_mode == impdiff_xyz) then
     call set_cufft_wspace(pack(arrplanu,.true.),istream_acc_queue_1)
     call set_cufft_wspace(pack(arrplanv,.true.),istream_acc_queue_1)
     call set_cufft_wspace(pack(arrplanw,.true.),istream_acc_queue_1)
@@ -504,33 +565,74 @@ program cans
                      s%is_forced,s%scalf,s%source,s%fluxo,s%dsdtrko,s%val,s%f)
         call bulk_forcing_s(n,s%is_forced,s%f,s%val)
         fs(iscal) = fs(iscal) + s%f
-        if(is_impdiff) then
+        select case(impdiff_mode)
+        case(impdiff_z)
           call solve_helmholtz(n,ng,hi,is_poisson_fft,s%arrplan,s%normfft,-0.5*s%alpha*dtrk, &
-                               s%lambdaxy,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd, &
-                               s%a,s%b,s%c,s%rhsb%x,s%rhsb%y,s%rhsb%z,is_bound,s%cbc,['c','c','c'],s%val)
-        end if
+                               a=s%a,b=s%b,c=s%c,rhsbz=s%rhsb%z,is_bound=is_bound,cbc=s%cbc,c_or_f=['c','c','c'],p=s%val)
+        case(impdiff_yz)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,s%arrplan,s%normfft,-0.5*s%alpha*dtrk, &
+                               lambday=s%lambday_g,eigvecy_fwd=s%eigvecy_fwd,eigvecy_bwd=s%eigvecy_bwd, &
+                               a=s%a,b=s%b,c=s%c,rhsby=s%rhsb%y,rhsbz=s%rhsb%z, &
+                               is_bound=is_bound,cbc=s%cbc,c_or_f=['c','c','c'],p=s%val)
+        case(impdiff_xyz)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,s%arrplan,s%normfft,-0.5*s%alpha*dtrk, &
+                               lambdaxy=s%lambdaxy,eigvecx_fwd=s%eigvecx_fwd,eigvecx_bwd=s%eigvecx_bwd, &
+                               eigvecy_fwd=s%eigvecy_fwd,eigvecy_bwd=s%eigvecy_bwd, &
+                               a=s%a,b=s%b,c=s%c,rhsbx=s%rhsb%x,rhsby=s%rhsb%y,rhsbz=s%rhsb%z, &
+                               is_bound=is_bound,cbc=s%cbc,c_or_f=['c','c','c'],p=s%val)
+        end select
         call boundp(s%cbc,n,s%bc,nb,is_bound,dxc,dyc,dzc,s%val)
       end do
       call rk(rkcoeff(:,irk),n,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxc,dxf,dyc,dyf,dzc,dzf,dt,visc,p, &
               is_forced,velf,bforce,gacc,beta,scalars,dudtrko,dvdtrko,dwdtrko,u,v,w,f)
       call bulk_forcing(n,is_forced,f,u,v,w)
       dpdl(:) = dpdl(:) + f(:)
-      if(is_impdiff) then
+      if(impdiff_mode /= impdiff_explicit) then
         alpha = -.5*visc*dtrk
-        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanu,normfftu,alpha, &
-                             lambdaxyu,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd, &
-                             au,bu,cu,rhsbu%x,rhsbu%y,rhsbu%z,is_bound,cbcvel(:,:,1),['f','c','c'],u)
-        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanv,normfftv,alpha, &
-                             lambdaxyv,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd, &
-                             av,bv,cv,rhsbv%x,rhsbv%y,rhsbv%z,is_bound,cbcvel(:,:,2),['c','f','c'],v)
-        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanw,normfftw,alpha, &
-                             lambdaxyw,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd, &
-                             aw,bw,cw,rhsbw%x,rhsbw%y,rhsbw%z,is_bound,cbcvel(:,:,3),['c','c','f'],w)
+        select case(impdiff_mode)
+        case(impdiff_z)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanu,normfftu,alpha, &
+                               a=au,b=bu,c=cu,rhsbz=rhsbu%z,is_bound=is_bound,cbc=cbcvel(:,:,1),c_or_f=['f','c','c'],p=u)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanv,normfftv,alpha, &
+                               a=av,b=bv,c=cv,rhsbz=rhsbv%z,is_bound=is_bound,cbc=cbcvel(:,:,2),c_or_f=['c','f','c'],p=v)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanw,normfftw,alpha, &
+                               a=aw,b=bw,c=cw,rhsbz=rhsbw%z,is_bound=is_bound,cbc=cbcvel(:,:,3),c_or_f=['c','c','f'],p=w)
+        case(impdiff_yz)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanu,normfftu,alpha, &
+                               lambday=lambdayu_g,eigvecy_fwd=eigvecyu_fwd,eigvecy_bwd=eigvecyu_bwd, &
+                               a=au,b=bu,c=cu,rhsby=rhsbu%y,rhsbz=rhsbu%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,1),c_or_f=['f','c','c'],p=u)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanv,normfftv,alpha, &
+                               lambday=lambdayv_g,eigvecy_fwd=eigvecyv_fwd,eigvecy_bwd=eigvecyv_bwd, &
+                               a=av,b=bv,c=cv,rhsby=rhsbv%y,rhsbz=rhsbv%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,2),c_or_f=['c','f','c'],p=v)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanw,normfftw,alpha, &
+                               lambday=lambdayw_g,eigvecy_fwd=eigvecyw_fwd,eigvecy_bwd=eigvecyw_bwd, &
+                               a=aw,b=bw,c=cw,rhsby=rhsbw%y,rhsbz=rhsbw%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,3),c_or_f=['c','c','f'],p=w)
+        case(impdiff_xyz)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanu,normfftu,alpha, &
+                               lambdaxy=lambdaxyu,eigvecx_fwd=eigvecxu_fwd,eigvecx_bwd=eigvecxu_bwd, &
+                               eigvecy_fwd=eigvecyu_fwd,eigvecy_bwd=eigvecyu_bwd, &
+                               a=au,b=bu,c=cu,rhsbx=rhsbu%x,rhsby=rhsbu%y,rhsbz=rhsbu%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,1),c_or_f=['f','c','c'],p=u)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanv,normfftv,alpha, &
+                               lambdaxy=lambdaxyv,eigvecx_fwd=eigvecxv_fwd,eigvecx_bwd=eigvecxv_bwd, &
+                               eigvecy_fwd=eigvecyv_fwd,eigvecy_bwd=eigvecyv_bwd, &
+                               a=av,b=bv,c=cv,rhsbx=rhsbv%x,rhsby=rhsbv%y,rhsbz=rhsbv%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,2),c_or_f=['c','f','c'],p=v)
+          call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplanw,normfftw,alpha, &
+                               lambdaxy=lambdaxyw,eigvecx_fwd=eigvecxw_fwd,eigvecx_bwd=eigvecxw_bwd, &
+                               eigvecy_fwd=eigvecyw_fwd,eigvecy_bwd=eigvecyw_bwd, &
+                               a=aw,b=bw,c=cw,rhsbx=rhsbw%x,rhsby=rhsbw%y,rhsbz=rhsbw%z, &
+                               is_bound=is_bound,cbc=cbcvel(:,:,3),c_or_f=['c','c','f'],p=w)
+        end select
       end if
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,.false.,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
       call fillps(n,dxfi,dyfi,dzfi,dtrki,u,v,w,pp)
       call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbp%x,rhsbp%y,rhsbp%z,pp)
-      call solver(n,ng,is_poisson_fft,arrplanp,normfftp,lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
+      call solver(n,ng,is_poisson_fft,arrplanp,product(normfftp(:)),lambdaxyp, &
+                  eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
                   ap,bp,cp,cbcpre,['c','c','c'],pp,is_ptdma_update_p,ap_d,cp_d)
       call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,pp)
       call correc(n,dxci,dyci,dzci,dtrk,pp,u,v,w)
@@ -709,7 +811,7 @@ program cans
   ! clear ffts
   !
   call fftend(arrplanp)
-  if(is_impdiff .and. .not.is_impdiff_1d) then
+  if(impdiff_mode == impdiff_yz .or. impdiff_mode == impdiff_xyz) then
     call fftend(arrplanu)
     call fftend(arrplanv)
     call fftend(arrplanw)

@@ -4,14 +4,14 @@
 # SPDX-License-Identifier: MIT
 #
 # -
-def estimate_memory_footprint(nx,ny,nz,nscal=0,nproc=1,rp=8,gp=8,is_impdiff=False,is_z_periodic=False,is_transpose_in_place=False):
+def estimate_memory_footprint(nx,ny,nz,nscal=0,nproc=1,rp=8,gp=8,impdiff_mode=0,is_z_periodic=False,is_transpose_in_place=False):
     n = nx*ny*nz/nproc
     footprint = 0
     footprint += n*(5+nscal)*rp # main arrays
     footprint += n*2*(3+nscal)*rp # prediction velocity arrays
     footprint += n*2*gp # solver pressure buffer arrays
     footprint += n*2*gp # other work arrays
-    if(is_impdiff):
+    if(impdiff_mode != 0):
         footprint += n*(3+nscal)*rp # implicit diffusion extra arrays
     if(is_z_periodic):
         footprint += n*2*gp # extra arrays for z peridicity
@@ -27,8 +27,8 @@ if __name__ == '__main__':
     nscal      = int(input("Number of scalars being simulated [default: 0]? ") or 0)
     nproc      = int(input("Number of GPUs [default: 1]? ") or 1)
     gp         = int(input("Poisson solver precision (8: double or 4: single) [default: 8]? ") or 8)
-    is_impdiff = int(input("Implicit Diffusion (0: no, else: yes) [default: 0]? ") or 0) != 0
+    impdiff_mode = int(input("Implicit diffusion mode (0: explicit, 1: z, 2: yz, 3: xyz) [default: 0]? ") or 0)
     #
-    footprint = estimate_memory_footprint(nx,ny,nz,nscal,nproc,rp=8,gp=gp,is_impdiff=is_impdiff)
+    footprint = estimate_memory_footprint(nx,ny,nz,nscal,nproc,rp=8,gp=gp,impdiff_mode=impdiff_mode)
     print("Estimated memory footprint (Gb): ", footprint/1024.**3)
     print("Estimated memory footprint (bytes per grid point): ", footprint/(nx*ny*nz/nproc))

@@ -7,7 +7,7 @@
 module mod_chkdt
   use mpi
   use mod_common_mpi, only:ierr
-  use mod_param     , only:is_impdiff,is_impdiff_1d
+  use mod_param     , only:impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz
   use mod_types
   implicit none
   private
@@ -31,10 +31,16 @@ module mod_chkdt
     !
     if(is_first) then ! calculate dlmin only once
       is_first = .false.
-      dlmin = min(minval(1./dxfi),minval(1./dyfi))
-      if(.not.is_impdiff_1d) then
-        dlmin = min(dlmin,minval(1./dzfi))
-      end if
+      select case(impdiff_mode)
+      case(impdiff_explicit)
+        dlmin = min(minval(1./dxfi),minval(1./dyfi),minval(1./dzfi))
+      case(impdiff_z)
+        dlmin = min(minval(1./dxfi),minval(1./dyfi))
+      case(impdiff_yz)
+        dlmin = minval(1./dxfi)
+      case default
+        dlmin = huge(1._rp)
+      end select
       call MPI_ALLREDUCE(MPI_IN_PLACE,dlmin,1,MPI_REAL_RP,MPI_MIN,MPI_COMM_WORLD,ierr)
     end if
     !
@@ -65,7 +71,7 @@ module mod_chkdt
     !$acc wait(1)
     call MPI_ALLREDUCE(MPI_IN_PLACE,dti,1,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
     if(dti < epsilon(0._rp)) dti = 1.
-    if(is_impdiff .and. .not.is_impdiff_1d) then
+    if(impdiff_mode == impdiff_xyz) then
       dtmax = sqrt(3.)/dti
     else
       dtmax = min(1.65/12./max(visc,alpha)*dlmin**2,sqrt(3.)/dti)

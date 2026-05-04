@@ -113,9 +113,6 @@ CUSTOM_DEFINES =  SINGLE_PRECISION \
 
 DEFINES += $(foreach var,$(CUSTOM_DEFINES),$(if $(filter 1,$(strip $($(var)))), -D_$(var)))
 
-ifeq ($(strip $(IMPDIFF_1D)),1)
-DEFINES += -D_IMPDIFF -D_IMPDIFF_1D
-endif
 ifeq      ($(strip $(PENCIL_AXIS)),1)
 DEFINES += -D_DECOMP_X
 else ifeq ($(strip $(PENCIL_AXIS)),2)

@@ -541,6 +541,8 @@ module mod_fft
     real(rp), pointer, contiguous :: sin_theta(:),cos_theta(:)
     integer :: n_2,n_3
     !
+    nullify(sin_theta,cos_theta)
+    !
     select case(idir)
     case(1)
       if(allocated(sincos_theta_x) .or. allocated(sincos_theta_y)) then
@@ -600,6 +602,8 @@ module mod_fft
     integer :: i,j,k,ii
     real(rp), pointer, contiguous :: sin_theta(:),cos_theta(:)
     integer :: n_2,n_3
+    !
+    nullify(sin_theta,cos_theta)
     !
     select case(idir)
     case(1)

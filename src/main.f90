@@ -480,8 +480,7 @@ program cans
     if(myid == 0) print*, '*** Checkpoint loaded at time = ', time, 'time step = ', istep, '. ***'
   end if
   !$acc enter data copyin(u,v,w,p,dudtrko,dvdtrko,dwdtrko) create(pp)
-  call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-  ! Momentum uses forward pressure differences, so only upper `p` halos are read.
+  call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,restart)
   call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p,1)
   do iscal=1,nscal
     s => scalars(iscal)
@@ -560,7 +559,6 @@ program cans
                              lambdayw_g,lambdaxyw,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd, &
                              aw,bw,cw,rhsbw%x,rhsbw%y,rhsbw%z,is_bound,cbcvel(:,:,3),['c','c','f'],w)
       end if
-      ! `fillps` needs lower normal halos; wide `correc` also needs both tangential halos.
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
       call fillps(n,dxfi,dyfi,dzfi,dtrki,u,v,w,pp)
       call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbp%x,rhsbp%y,rhsbp%z,pp)
@@ -569,7 +567,6 @@ program cans
                   ap,bp,cp,cbcpre,['c','c','c'],pp,is_dtdma_update_p,ap_d,cp_d)
       call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,pp)
       call correc(n,dxci,dyci,dzci,dtrk,pp,u,v,w)
-      ! `correc` updates the tangential and lower normal halos locally.
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
       call updatep(n,dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,pp,p)
       call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p,1)

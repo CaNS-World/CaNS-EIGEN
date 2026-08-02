@@ -144,8 +144,8 @@ override FFLAGS += -fno-openmp
 endif
 endif
 
-# ci artifacts may run on a different github-hosted CPU model.
-# allow ci to request a portable NVHPC target without changing native user builds.
+# CI artifacts may run on a different GitHub-hosted CPU model.
+# Allow CI to request a portable NVHPC target without changing native user builds.
 ifeq ($(strip $(FCOMP)),NVIDIA)
 ifneq ($(strip $(NVHPC_CPU_TARGET)),)
 override FFLAGS += -tp=$(NVHPC_CPU_TARGET)

@@ -148,8 +148,7 @@ module mod_post
     !$acc enter data create(vox,voy,voz)
     call vorticity(n,dxci,dyci,dzci,ux,uy,uz,vox,voy,voz)
     !
-    ! the invariant Wij*Wij = |vorticity|^2/2.
-    ! interpolate squared edge values to cells.
+    ! Wij*Wij = |vorticity|^2/2; interpolate squared edge values to cells
     !
     !$acc parallel loop collapse(3) default(present)
     !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)

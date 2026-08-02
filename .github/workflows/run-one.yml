@@ -50,7 +50,7 @@ jobs:
             flags: "FFLAGS_OPT=1"
           - name: dbg
             flags: "FFLAGS_DEBUG_MAX=1 FFLAGS_OPT=0"
-        test-name: [lid_driven_cavity,differentially_heated_cavity]
+        test-name: [lid_driven_cavity,differentially_heated_cavity,start_stop]
       fail-fast: false # ensures that jobs run in parallel
     name: test-${{ matrix.mode.name }}-${{ matrix.test-name }}
     env:

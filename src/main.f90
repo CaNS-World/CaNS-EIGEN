@@ -68,7 +68,7 @@ program cans
   use mod_sanity         , only: test_sanity_input,test_sanity_grid,test_sanity_solver
   use mod_scal           , only: scalar,initialize_scalars,bulk_forcing_s
   use mod_solve_helmholtz, only: solve_helmholtz,rhs_bound
-#if !defined(_OPENACC)
+#if !(defined(_OPENACC) || defined(_OPENMP))
   use mod_solver         , only: solver
 #else
   use mod_solver_gpu     , only: solver => solver_gpu
@@ -77,7 +77,7 @@ program cans
 #endif
   use mod_updatep        , only: updatep
   use mod_utils          , only: bulk_mean
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   use mod_utils          , only: device_memory_footprint
 #endif
   use mod_types
@@ -88,7 +88,7 @@ program cans
   real(rp), allocatable, dimension(:,:,:) :: dudtrko,dvdtrko,dwdtrko
   real(rp), dimension(0:1,3) :: tauxo,tauyo,tauzo
   real(rp), dimension(3) :: f
-#if !defined(_OPENACC) || defined(_USE_HIP)
+#if !(defined(_OPENACC) || defined(_OPENMP)) || defined(_USE_HIP)
   type(C_PTR), dimension(2,2) :: arrplanp
 #else
   integer    , dimension(2,2) :: arrplanp
@@ -103,7 +103,7 @@ program cans
   real(rp), dimension(2) :: normfftp
   type(rhs_bound) :: rhsbp
   real(rp) :: alpha
-#if !defined(_OPENACC) || defined(_USE_HIP)
+#if !(defined(_OPENACC) || defined(_OPENMP)) || defined(_USE_HIP)
   type(C_PTR), dimension(2,2) :: arrplanu,arrplanv,arrplanw
 #else
   integer    , dimension(2,2) :: arrplanu,arrplanv,arrplanw
@@ -163,7 +163,6 @@ program cans
   !
   ! initialize MPI/OpenMP
   !
-  !$ call omp_set_num_threads(omp_get_max_threads())
   call initmpi(ng,dims,is_poisson_fft,cbcpre,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,nb,is_bound)
   twi = MPI_WTIME()
   savecounter = 0
@@ -183,7 +182,7 @@ program cans
            eigvecyp_fwd(ng(2),ng(2)),eigvecyp_bwd(ng(2),ng(2)))
   allocate(ap(n_z(3)),bp(n_z(3)),cp(n_z(3)))
   if(is_poisson_dtdma) then
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
     n_z_d(:) = ap_z_dtdma%shape(:)
 #else
     n_z_d(:) = dinfo_dtdma%zsz(:)
@@ -279,17 +278,27 @@ program cans
     call save_grid(datadir,'grid_y',ng(2),yc_g,yf_g,dyc_g,dyf_g)
     call save_grid(datadir,'grid_z',ng(3),zc_g,zf_g,dzc_g,dzf_g)
   end if
-  !$acc enter data copyin(lo,hi,n) async
-  !$acc enter data copyin(bforce,l) async
-  !$acc enter data copyin(gacc) async
-  !$acc enter data copyin(xc_g,xf_g,dxc_g,dxf_g) async
-  !$acc enter data create(xc,xf,dxc,dxf,dxci,dxfi,dxci_g,dxfi_g) async
-  !$acc enter data copyin(yc_g,yf_g,dyc_g,dyf_g) async
-  !$acc enter data create(yc,yf,dyc,dyf,dyci,dyfi,dyci_g,dyfi_g) async
-  !$acc enter data copyin(zc_g,zf_g,dzc_g,dzf_g) async
-  !$acc enter data create(zc,zf,dzc,dzf,dzci,dzfi,dzci_g,dzfi_g) async
+  !$acc        enter data copyin(lo,hi,n) async
+  !$omp target enter data map(to:lo,hi,n)
+  !$acc        enter data copyin(bforce,l) async
+  !$omp target enter data map(to:bforce,l)
+  !$acc        enter data copyin(gacc) async
+  !$omp target enter data map(to:gacc)
+  !$acc        enter data copyin(xc_g,xf_g,dxc_g,dxf_g) async
+  !$omp target enter data map(to:xc_g,xf_g,dxc_g,dxf_g)
+  !$acc        enter data create(   xc,xf,dxc,dxf,dxci,dxfi,dxci_g,dxfi_g) async
+  !$omp target enter data map(alloc:xc,xf,dxc,dxf,dxci,dxfi,dxci_g,dxfi_g)
+  !$acc        enter data copyin(yc_g,yf_g,dyc_g,dyf_g) async
+  !$omp target enter data map(to:yc_g,yf_g,dyc_g,dyf_g)
+  !$acc        enter data create(   yc,yf,dyc,dyf,dyci,dyfi,dyci_g,dyfi_g) async
+  !$omp target enter data map(alloc:yc,yf,dyc,dyf,dyci,dyfi,dyci_g,dyfi_g)
+  !$acc        enter data copyin(zc_g,zf_g,dzc_g,dzf_g) async
+  !$omp target enter data map(to:zc_g,zf_g,dzc_g,dzf_g)
+  !$acc        enter data create(   zc,zf,dzc,dzf,dzci,dzfi,dzci_g,dzfi_g) async
+  !$omp target enter data map(alloc:zc,zf,dzc,dzf,dzci,dzfi,dzci_g,dzfi_g)
   !
-  !$acc parallel loop default(present) private(q) async
+  !$acc parallel     loop default(present) private(q) async
+  !$omp target teams loop                  private(q)
   do qq=lo(1)-1,hi(1)+1
     q = qq-(lo(1)-1)
     xc( q) = xc_g(qq)
@@ -299,7 +308,8 @@ program cans
     dxci(q) = dxc(q)**(-1)
     dxfi(q) = dxf(q)**(-1)
   end do
-  !$acc parallel loop default(present) private(q) async
+  !$acc parallel     loop default(present) private(q) async
+  !$omp target teams loop                  private(q)
   do qq=lo(2)-1,hi(2)+1
     q = qq-(lo(2)-1)
     yc( q) = yc_g(qq)
@@ -309,7 +319,8 @@ program cans
     dyci(q) = dyc(q)**(-1)
     dyfi(q) = dyf(q)**(-1)
   end do
-  !$acc parallel loop default(present) private(q) async
+  !$acc parallel     loop default(present) private(q) async
+  !$omp target teams loop                  private(q)
   do qq=lo(3)-1,hi(3)+1
     q = qq-(lo(3)-1)
     zc( q) = zc_g(qq)
@@ -319,29 +330,40 @@ program cans
     dzci(q) = dzc(q)**(-1)
     dzfi(q) = dzf(q)**(-1)
   end do
-  !$acc data copy(ng) async
-  !$acc parallel loop default(present) async
+  !$acc        data copy(  ng) async
+  !$omp target data map(to:ng)
+  !$acc parallel     loop default(present) async
+  !$omp target teams loop
   do q=0,ng(1)+1
     dxci_g(q) = dxc_g(q)**(-1)
     dxfi_g(q) = dxf_g(q)**(-1)
   end do
-  !$acc parallel loop default(present) async
+  !$acc parallel     loop default(present) async
+  !$omp target teams loop
   do q=0,ng(2)+1
     dyci_g(q) = dyc_g(q)**(-1)
     dyfi_g(q) = dyf_g(q)**(-1)
   end do
-  !$acc parallel loop default(present) async
+  !$acc parallel     loop default(present) async
+  !$omp target teams loop
   do k=0,ng(3)+1
     dzci_g(k) = dzc_g(k)**(-1)
     dzfi_g(k) = dzf_g(k)**(-1)
   end do
-  !$acc end data
-  !$acc update self(xc,xf,dxc,dxf,dxci,dxfi) async
-  !$acc exit data copyout(xc_g,xf_g,dxc_g,dxf_g,dxci_g,dxfi_g) async ! not needed on the device
-  !$acc update self(yc,yf,dyc,dyf,dyci,dyfi) async
-  !$acc exit data copyout(yc_g,yf_g,dyc_g,dyf_g,dyci_g,dyfi_g) async ! not needed on the device
-  !$acc update self(zc,zf,dzc,dzf,dzci,dzfi) async
-  !$acc exit data copyout(zc_g,zf_g,dzc_g,dzf_g,dzci_g,dzfi_g) async ! not needed on the device
+  !$omp end target data
+  !$acc end        data
+  !$acc update self(       xc,xf,dxc,dxf,dxci,dxfi) async
+  !$omp target update from(xc,xf,dxc,dxf,dxci,dxfi)
+  !$acc        exit data copyout( xc_g,xf_g,dxc_g,dxf_g,dxci_g,dxfi_g) async ! not needed on the device
+  !$omp target exit data map(from:xc_g,xf_g,dxc_g,dxf_g,dxci_g,dxfi_g)
+  !$acc update self(       yc,yf,dyc,dyf,dyci,dyfi) async
+  !$omp target update from(yc,yf,dyc,dyf,dyci,dyfi)
+  !$acc        exit data copyout( yc_g,yf_g,dyc_g,dyf_g,dyci_g,dyfi_g) async ! not needed on the device
+  !$omp target exit data map(from:yc_g,yf_g,dyc_g,dyf_g,dyci_g,dyfi_g)
+  !$acc update self(       zc,zf,dzc,dzf,dzci,dzfi) async
+  !$omp target update from(zc,zf,dzc,dzf,dzci,dzfi)
+  !$acc        exit data copyout( zc_g,zf_g,dzc_g,dzf_g,dzci_g,dzfi_g) async ! not needed on the device
+  !$omp target exit data map(from:zc_g,zf_g,dzc_g,dzf_g,dzci_g,dzfi_g)
   !$acc wait
   !
   ! test input files before proceeding with the calculation
@@ -355,10 +377,13 @@ program cans
                   cbcpre,bcpre(:,:),lambdaxp_g,lambdayp_g,lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
                   ['c','c','c'],ap,bp,cp,arrplanp,normfftp,rhsbp%x,rhsbp%y,rhsbp%z)
   deallocate(lambdaxp_g,lambdayp_g)
-  !$acc enter data copyin(lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd,ap,bp,cp) async
-  !$acc enter data copyin(rhsbp,rhsbp%x,rhsbp%y,rhsbp%z) async
+  !$acc        enter data copyin(lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd,ap,bp,cp) async
+  !$omp target enter data map(to:lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd,ap,bp,cp)
+  !$acc        enter data copyin(rhsbp,rhsbp%x,rhsbp%y,rhsbp%z) async
+  !$omp target enter data map(to:rhsbp,rhsbp%x,rhsbp%y,rhsbp%z)
   if(is_poisson_dtdma) then
-    !$acc enter data create(ap_d,cp_d) async
+    !$acc        enter data create(   ap_d,cp_d) async
+    !$omp target enter data map(alloc:ap_d,cp_d)
   end if
   !$acc wait
   if(impdiff_mode /= impdiff_explicit) then
@@ -418,20 +443,28 @@ program cans
         deallocate(s%lambdax_g,s%lambday_g)
       end do
     end if
-    !$acc enter data copyin(lambdaxyu,lambdayu_g,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu) async
-    !$acc enter data copyin(lambdaxyv,lambdayv_g,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv) async
-    !$acc enter data copyin(lambdaxyw,lambdayw_g,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw) async
-    !$acc enter data copyin(rhsbu,rhsbu%x,rhsbu%y,rhsbu%z) async
-    !$acc enter data copyin(rhsbv,rhsbv%x,rhsbv%y,rhsbv%z) async
-    !$acc enter data copyin(rhsbw,rhsbw%x,rhsbw%y,rhsbw%z) async
+    !$acc        enter data copyin(lambdaxyu,lambdayu_g,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu) async
+    !$omp target enter data map(to:lambdaxyu,lambdayu_g,eigvecxu_fwd,eigvecxu_bwd,eigvecyu_fwd,eigvecyu_bwd,au,bu,cu)
+    !$acc        enter data copyin(lambdaxyv,lambdayv_g,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv) async
+    !$omp target enter data map(to:lambdaxyv,lambdayv_g,eigvecxv_fwd,eigvecxv_bwd,eigvecyv_fwd,eigvecyv_bwd,av,bv,cv)
+    !$acc        enter data copyin(lambdaxyw,lambdayw_g,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw) async
+    !$omp target enter data map(to:lambdaxyw,lambdayw_g,eigvecxw_fwd,eigvecxw_bwd,eigvecyw_fwd,eigvecyw_bwd,aw,bw,cw)
+    !$acc        enter data copyin(rhsbu,rhsbu%x,rhsbu%y,rhsbu%z) async
+    !$omp target enter data map(to:rhsbu,rhsbu%x,rhsbu%y,rhsbu%z)
+    !$acc        enter data copyin(rhsbv,rhsbv%x,rhsbv%y,rhsbv%z) async
+    !$omp target enter data map(to:rhsbv,rhsbv%x,rhsbv%y,rhsbv%z)
+    !$acc        enter data copyin(rhsbw,rhsbw%x,rhsbw%y,rhsbw%z) async
+    !$omp target enter data map(to:rhsbw,rhsbw%x,rhsbw%y,rhsbw%z)
     do iscal=1,nscal
       s => scalars(iscal)
-      !$acc enter data copyin(s%lambdaxy,s%lambday_g,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c) async
-      !$acc enter data copyin(s%rhsb,s%rhsb%x,s%rhsb%y,s%rhsb%z) async
+      !$acc        enter data copyin(s%lambdaxy,s%lambday_g,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c) async
+      !$omp target enter data map(to:s%lambdaxy,s%lambday_g,s%eigvecx_fwd,s%eigvecx_bwd,s%eigvecy_fwd,s%eigvecy_bwd,s%a,s%b,s%c)
+      !$acc        enter data copyin(s%rhsb,s%rhsb%x,s%rhsb%y,s%rhsb%z) async
+      !$omp target enter data map(to:s%rhsb,s%rhsb%x,s%rhsb%y,s%rhsb%z)
     end do
     !$acc wait
   end if
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   !
   ! determine workspace sizes and allocate the memory
   !
@@ -479,12 +512,14 @@ program cans
     end do
     if(myid == 0) print*, '*** Checkpoint loaded at time = ', time, 'time step = ', istep, '. ***'
   end if
-  !$acc enter data copyin(u,v,w,p,dudtrko,dvdtrko,dwdtrko) create(pp)
+  !$acc        enter data copyin(u,v,w,p,dudtrko,dvdtrko,dwdtrko) create(   pp)
+  !$omp target enter data map(to:u,v,w,p,dudtrko,dvdtrko,dwdtrko) map(alloc:pp)
   call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,restart)
   call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p,1)
   do iscal=1,nscal
     s => scalars(iscal)
-    !$acc enter data copyin(s%val,s%dsdtrko) async(1)
+    !$acc        enter data copyin(s%val,s%dsdtrko) async(1)
+    !$omp target enter data map(to:s%val,s%dsdtrko)
     call boundp(s%cbc,n,s%bc,nb,is_bound,dxc,dyc,dzc,s%val)
   end do
   !$acc wait
@@ -493,9 +528,11 @@ program cans
   !
   write(fldnum,'(i7.7)') istep
   !$acc wait ! not needed but to prevent possible future issues
-  !$acc update self(u,v,w,p)
+  !$acc        update self(u,v,w,p)
+  !$omp target update from(u,v,w,p)
   do iscal=1,nscal
-    !$acc update self(scalars(iscal)%val)
+    !$acc        update self(scalars(iscal)%val)
+    !$omp target update from(scalars(iscal)%val)
   end do
   if(iout1d > 0.and.mod(istep,max(iout1d,1)) == 0) then
     include 'out1d.h90'
@@ -654,25 +691,31 @@ program cans
     write(fldnum,'(i7.7)') istep
     if(iout1d > 0.and.mod(istep,max(iout1d,1)) == 0) then
       !$acc wait
-      !$acc update self(u,v,w,p)
+      !$acc        update self(u,v,w,p)
+      !$omp target update from(u,v,w,p)
       do iscal=1,nscal
-        !$acc update self(scalars(iscal)%val)
+        !$acc        update self(scalars(iscal)%val)
+        !$omp target update from(scalars(iscal)%val)
       end do
       include 'out1d.h90'
     end if
     if(iout2d > 0.and.mod(istep,max(iout2d,1)) == 0) then
       !$acc wait
-      !$acc update self(u,v,w,p)
+      !$acc        update self(u,v,w,p)
+      !$omp target update from(u,v,w,p)
       do iscal=1,nscal
-        !$acc update self(scalars(iscal)%val)
+        !$acc        update self(scalars(iscal)%val)
+        !$omp target update from(scalars(iscal)%val)
       end do
       include 'out2d.h90'
     end if
     if(iout3d > 0.and.mod(istep,max(iout3d,1)) == 0) then
       !$acc wait
-      !$acc update self(u,v,w,p)
+      !$acc        update self(u,v,w,p)
+      !$omp target update from(u,v,w,p)
       do iscal=1,nscal
-        !$acc update self(scalars(iscal)%val)
+        !$acc        update self(scalars(iscal)%val)
+        !$omp target update from(scalars(iscal)%val)
       end do
       include 'out3d.h90'
     end if
@@ -693,9 +736,11 @@ program cans
         end if
       end if
       !$acc wait
-      !$acc update self(u,v,w,p)
+      !$acc        update self(u,v,w,p)
+      !$omp target update from(u,v,w,p)
       do iscal=1,nscal
-        !$acc update self(scalars(iscal)%val)
+        !$acc        update self(scalars(iscal)%val)
+        !$omp target update from(scalars(iscal)%val)
       end do
       do is=1,4+nscal
         select case(trim(c_io_vars(is)))
@@ -753,7 +798,7 @@ program cans
   end if
   if(myid == 0.and.(.not.kill)) print*, '*** Fim ***'
   call decomp_2d_finalize
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   call cudecomp_finalize
 #endif
   call MPI_FINALIZE(ierr)

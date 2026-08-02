@@ -8,7 +8,6 @@ The `Makefile` in the root directory is used to compile the code, and is expecte
 #
 # compiler and compiling profile
 #
-At present, the GPU-enabled path documented in this branch corresponds to the OpenACC implementation. The OpenMP GPU backend is being maintained in the [`openmp-port` branch](https://github.com/CaNS-World/CaNS/tree/openmp-port); see its [`docs/INFO_COMPILING.md`](https://github.com/CaNS-World/CaNS/blob/openmp-port/docs/INFO_COMPILING.md) for the OpenMP target offload build path.
 FCOMP=GNU          # options: GNU, NVIDIA, INTEL
 FFLAGS_OPT=1       # for production runs
 FFLAGS_OPT_MAX=0   # for production runs (more aggressive optimization)
@@ -19,6 +18,7 @@ FFLAGS_DEBUG_MAX=0 # for thorough debugging
 #
 SINGLE_PRECISION=0 # perform the whole calculation in single precision
 GPU=0              # GPU build
+GPU_BACKEND=OACC   # options: OACC, OMP
 USE_HDF5=0         # HDF5 I/O support
 USE_ADIOS2=0       # ADIOS2 I/O support
 ```
@@ -29,9 +29,10 @@ In this file, `FCOMP` can be one of `GNU` (`gfortran`), `INTEL` (`ifort`), `NVID
  * `GPU`              : enable GPU accelerated runs
  * `USE_HDF5`         : enable HDF5-based I/O support
  * `USE_ADIOS2`       : enable ADIOS2-based I/O support
- * `USE_DIEZDECOMP`   : use [diezDecomp](https://github.com/Rafael10Diez/diezDecomp) as GPU communication backend instead of the default (cuDecomp), e.g., for portability in different accelerators. While diezDecomp supports CPU-CPU communication, this is not used in CaNS yet.
+ * `USE_DIEZDECOMP`   : use [diezDecomp](https://github.com/Rafael10Diez/diezDecomp) as GPU communication backend instead of the default (cuDecomp), e.g., for portability in different accelerators; while diezDecomp supports CPU-CPU communication, this is not used in CaNS yet
+ * `GPU_BACKEND`      : backend for directives-based GPU offloading: `OACC` for OpenACC (default), and `OMP` for OpenMP (OpenMP support for shared-memory parallelization on CPU is not supported anymore)
 
-At present, the GPU-enabled path documented in this branch corresponds to the OpenACC implementation. The OpenMP GPU backend (OpenMP target offload) is being maintained in the [`openmp-port` branch](https://github.com/CaNS-World/CaNS/tree/openmp-port); see its [`docs/INFO_COMPILING.md`](https://github.com/CaNS-World/CaNS/blob/openmp-port/docs/INFO_COMPILING.md) file for the OpenMP target offload build path.
+The OpenMP GPU backend can be selected by building with `GPU=1 GPU_BACKEND=OMP`; if `GPU_BACKEND` is not specified, the default GPU path remains `OACC`.
 
 NVIDIA GPU builds generate code for the major compute capabilities selected by the compiler (`NVHPC_GPU_TARGET=ccall-major`). This can be overridden for a specific GPU, for example with `make NVHPC_GPU_TARGET=cc89`, or set to `ccnative` to target the GPUs visible on the build system.
 

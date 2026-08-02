@@ -45,11 +45,12 @@ module mod_debug
     difftot = 0.
     diffmax = 0.
     !$acc wait
-    !$acc data copy(difftot,diffmax,q,is_dir)
+    !$acc        data copy(difftot,diffmax,q,is_dir)
+    !$omp target data map(to:q,is_dir) map(tofrom:difftot,diffmax)
     select case(c_or_f(1)//c_or_f(2)//c_or_f(3))
     case('ccc')
-      !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared ) PRIVATE(val,res) REDUCTION(+:difftot) REDUCTION(max:diffmax)
+      !$acc parallel     loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
+      !$omp target teams loop collapse(3)                  private(val,res) reduction(+:difftot) reduction(max:diffmax)
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
@@ -67,8 +68,8 @@ module mod_debug
         end do
       end do
     case('fcc')
-      !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared ) PRIVATE(val,res) REDUCTION(+:difftot) REDUCTION(max:diffmax)
+      !$acc parallel     loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
+      !$omp target teams loop collapse(3)                  private(val,res) reduction(+:difftot) reduction(max:diffmax)
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
@@ -86,8 +87,8 @@ module mod_debug
         end do
       end do
     case('cfc')
-      !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared ) PRIVATE(val,res) REDUCTION(+:difftot) REDUCTION(max:diffmax)
+      !$acc parallel     loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
+      !$omp target teams loop collapse(3)                  private(val,res) reduction(+:difftot) reduction(max:diffmax)
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
@@ -105,8 +106,8 @@ module mod_debug
         end do
       end do
     case('ccf')
-      !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared ) PRIVATE(val,res) REDUCTION(+:difftot) REDUCTION(max:diffmax)
+      !$acc parallel     loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
+      !$omp target teams loop collapse(3)                  private(val,res) reduction(+:difftot) reduction(max:diffmax)
       do k=lo(3),hi(3)-q(3)
         do j=lo(2),hi(2)-q(2)
           do i=lo(1),hi(1)-q(1)
@@ -124,7 +125,8 @@ module mod_debug
         end do
       end do
     end select
-    !$acc end data
+    !$omp end target data
+    !$acc end        data
     call MPI_ALLREDUCE(MPI_IN_PLACE,difftot,1,MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
     call MPI_ALLREDUCE(MPI_IN_PLACE,diffmax,1,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
     difftot = difftot/product(l(:))
@@ -149,9 +151,10 @@ module mod_debug
     difftot = 0.
     diffmax = 0.
     !$acc wait
-    !$acc data copy(difftot,diffmax)
-    !$acc parallel loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared ) PRIVATE(val,res) REDUCTION(+:difftot) REDUCTION(max:diffmax)
+    !$acc        data copy(difftot,diffmax)
+    !$omp target data map(tofrom:difftot,diffmax)
+    !$acc parallel     loop collapse(3) default(present) private(val,res) reduction(+:difftot) reduction(max:diffmax)
+    !$omp target teams loop collapse(3)                  private(val,res) reduction(+:difftot) reduction(max:diffmax)
     do k=lo(3),hi(3)
       do j=lo(2),hi(2)
         do i=lo(1),hi(1)
@@ -168,7 +171,8 @@ module mod_debug
         end do
       end do
     end do
-    !$acc end data
+    !$omp end target data
+    !$acc end        data
     call MPI_ALLREDUCE(MPI_IN_PLACE,difftot,1,MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
     call MPI_ALLREDUCE(MPI_IN_PLACE,diffmax,1,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
     difftot = difftot/product(l(:))

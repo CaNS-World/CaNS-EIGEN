@@ -20,7 +20,7 @@ module mod_sanity
   use mod_initsolver, only: initsolver
   use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
   use mod_param     , only: is_poisson_fft_param => is_poisson_fft
-#if !defined(_OPENACC)
+#if !(defined(_OPENACC) || defined(_OPENMP))
   use mod_solver    , only: solver
 #else
   use mod_solver_gpu, only: solver => solver_gpu
@@ -217,7 +217,7 @@ module mod_sanity
         print*, 'ERROR: velocity BCs with FFT-based implicit diffusion in directions x/y must be homogeneous (value = 0.).'
       passed = passed.and.passed_loc
     end if
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
     passed_loc = .true.
     do idir=1,2
       bc01p = cbcpre(0,idir)//cbcpre(1,idir)
@@ -252,7 +252,7 @@ module mod_sanity
   subroutine test_sanity_solver(ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
                                 dxc,dxf,dyc,dyf,dzc,dzf,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                                 nb,is_bound,cbcvel,cbcpre,bcvel,bcpre)
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
     use mod_workspaces     , only: set_cufft_wspace
     use mod_common_cudecomp, only: istream_acc_queue_1
 #endif
@@ -270,7 +270,7 @@ module mod_sanity
     real(rp), intent(in), dimension(0:1,3,3)         :: bcvel
     real(rp), intent(in), dimension(0:1,3)           :: bcpre
     real(rp), allocatable, dimension(:,:,:) :: u,v,w,p
-#if !defined(_OPENACC) || defined(_USE_HIP)
+#if !(defined(_OPENACC) || defined(_OPENMP)) || defined(_USE_HIP)
     type(C_PTR), dimension(2,2) :: arrplan
 #else
     integer    , dimension(2,2) :: arrplan
@@ -297,7 +297,8 @@ module mod_sanity
              rhsbx(n(2),n(3),0:1), &
              rhsby(n(1),n(3),0:1), &
              rhsbz(n(1),n(2),0:1))
-    !$acc enter data copyin(n,n_z)
+    !$acc        enter data copyin(n,n_z)
+    !$omp target enter data map(to:n,n_z)
     !
     ! initialize velocity below with some random noise
     !
@@ -308,15 +309,17 @@ module mod_sanity
     call add_noise(ng,lo,123,.5_rp,u(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,456,.5_rp,v(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,789,.5_rp,w(1:n(1),1:n(2),1:n(3)))
-    !$acc enter data copyin(u,v,w,p)
+    !$acc        enter data copyin(u,v,w,p)
+    !$omp target enter data map(to:u,v,w,p)
     !
     ! test pressure correction
     !
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                     cbcpre,bcpre(:,:),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                     ['c','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-    !$acc enter data copyin(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC)
+    !$acc        enter data copyin(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$omp target enter data map(to:lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+#if defined(_OPENACC) || defined(_OPENMP)
     call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
     dt  = acos(-1.) ! value is irrelevant
@@ -339,8 +342,8 @@ module mod_sanity
       allocate(bb(n_z(3)))
       alpha  = acos(-1.) ! irrelevant
       alphai = alpha**(-1)
-      !$acc parallel loop collapse(3) default(present)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present)
+      !$omp target teams loop collapse(3)
       do k=0,n(3)+1
         do j=0,n(2)+1
           do i=0,n(1)+1
@@ -350,22 +353,26 @@ module mod_sanity
           end do
         end do
       end do
-      !$acc update self(u,v,w)
+      !$acc        update self(u,v,w)
+      !$omp target update from(u,v,w)
       call add_noise(ng,lo,123,.5_rp,u(1:n(1),1:n(2),1:n(3)))
       call add_noise(ng,lo,456,.5_rp,v(1:n(1),1:n(2),1:n(3)))
       call add_noise(ng,lo,789,.5_rp,w(1:n(1),1:n(2),1:n(3)))
-      !$acc update device(u,v,w)
-      !$acc enter data create(bb)
+      !$acc        update device(u,v,w)
+      !$omp target update to(    u,v,w)
+      !$acc        enter data create(   bb)
+      !$omp target enter data map(alloc:bb)
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                       cbcvel(:,:,1),bcvel(:,:,1),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['f','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC)
+      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+#if defined(_OPENACC) || defined(_OPENMP)
       call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel loop collapse(3) default(present)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present)
+      !$omp target teams loop collapse(3)
       do k=0,n(3)+1
         do j=0,n(2)+1
           do i=0,n(1)+1
@@ -373,8 +380,8 @@ module mod_sanity
           end do
         end do
       end do
-      !$acc parallel loop default(present)
-      !$OMP parallel do   DEFAULT(shared)
+      !$acc parallel     loop default(present)
+      !$omp target teams loop
       do k=1,n_z(3)
         bb(k) = b(k) + alphai
       end do
@@ -392,13 +399,14 @@ module mod_sanity
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                       cbcvel(:,:,2),bcvel(:,:,2),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['c','f','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC)
+      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+#if defined(_OPENACC) || defined(_OPENMP)
       call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel loop collapse(3) default(present)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present)
+      !$omp target teams loop collapse(3)
       do k=0,n(3)+1
         do j=0,n(2)+1
           do i=0,n(1)+1
@@ -406,8 +414,8 @@ module mod_sanity
           end do
         end do
       end do
-      !$acc parallel loop default(present)
-      !$OMP parallel do   DEFAULT(shared)
+      !$acc parallel     loop default(present)
+      !$omp target teams loop
       do k=1,n_z(3)
         bb(k) = b(k) + alphai
       end do
@@ -425,13 +433,14 @@ module mod_sanity
       call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                       cbcvel(:,:,3),bcvel(:,:,3),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                       ['c','c','f'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC)
+      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+#if defined(_OPENACC) || defined(_OPENMP)
       call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel loop collapse(3) default(present)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present)
+      !$omp target teams loop collapse(3)
       do k=0,n(3)+1
         do j=0,n(2)+1
           do i=0,n(1)+1
@@ -439,8 +448,8 @@ module mod_sanity
           end do
         end do
       end do
-      !$acc parallel loop default(present)
-      !$OMP parallel do   DEFAULT(shared)
+      !$acc parallel     loop default(present)
+      !$omp target teams loop
       do k=1,n_z(3)
         bb(k) = b(k) + alphai
       end do
@@ -454,9 +463,11 @@ module mod_sanity
       if(myid == 0.and.(.not.passed_loc)) &
       print*, 'ERROR: wrong solution of Helmholtz equation in z direction.'
       passed = passed.and.passed_loc
-      !$acc exit data delete(bb)
+      !$acc        exit data delete(    bb)
+      !$omp target exit data map(delete:bb)
     end if
-    !$acc exit data delete(u,v,w,p,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$acc        exit data delete(    u,v,w,p,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$omp target exit data map(delete:u,v,w,p,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
     if(.not.passed) then
       call decomp_2d_finalize
       call MPI_FINALIZE(ierr)

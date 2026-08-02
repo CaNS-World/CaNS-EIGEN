@@ -63,7 +63,7 @@ module mod_bound
                               (cbc(0,idir,idir)//cbc(1,idir,idir) == 'PP'.and.updt_norm(1))
     end do
     !
-#if !defined(_OPENACC)
+#if !(defined(_OPENACC) || defined(_OPENMP))
     call updthalo(nh,halo(1),nb(:,1),1,u,halos_norm)
     call updthalo(nh,halo(1),nb(:,1),1,v,halos_tang)
     call updthalo(nh,halo(1),nb(:,1),1,w,halos_tang)
@@ -150,7 +150,7 @@ module mod_bound
       end select
     end if
     !
-#if !defined(_OPENACC)
+#if !(defined(_OPENACC) || defined(_OPENMP))
     do idir = 1,3
       call updthalo(nh,halo(idir),nb(:,idir),idir,p,halo_side)
     end do
@@ -219,16 +219,16 @@ module mod_bound
         select case(idir)
         case(1)
           if     (ibound == 0) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do k=1-nh,size(p,3)-nh
               do j=1-nh,size(p,2)-nh
                 p(  0-dh,j,k) = p(n-dh,j,k)
               end do
             end do
           else if(ibound == 1) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do k=1-nh,size(p,3)-nh
               do j=1-nh,size(p,2)-nh
                 p(n+1+dh,j,k) = p(1+dh,j,k)
@@ -237,16 +237,16 @@ module mod_bound
           end if
         case(2)
           if     (ibound == 0) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do k=1-nh,size(p,3)-nh
               do i=1-nh,size(p,1)-nh
                 p(i,  0-dh,k) = p(i,n-dh,k)
               end do
             end do
           else if(ibound == 1) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do k=1-nh,size(p,3)-nh
               do i=1-nh,size(p,1)-nh
                 p(i,n+1+dh,k) = p(i,1+dh,k)
@@ -255,16 +255,16 @@ module mod_bound
           end if
         case(3)
           if     (ibound == 0) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do j=1-nh,size(p,2)-nh
               do i=1-nh,size(p,1)-nh
                 p(i,j,  0-dh) = p(i,j,n-dh)
               end do
             end do
           else if(ibound == 1) then
-            !$acc parallel loop collapse(2) default(present) async(1)
-            !$OMP parallel do   collapse(2) DEFAULT(shared)
+            !$acc parallel     loop collapse(2) default(present) async(1)
+            !$omp target teams loop collapse(2)
             do j=1-nh,size(p,2)-nh
               do i=1-nh,size(p,1)-nh
                 p(i,j,n+1+dh) = p(i,j,1+dh)
@@ -277,16 +277,16 @@ module mod_bound
           select case(idir)
           case(1)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   p(  0-dh,j,k) = factor+sgn*p(1+dh,j,k)
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   p(n+1+dh,j,k) = factor+sgn*p(n-dh,j,k)
@@ -295,16 +295,16 @@ module mod_bound
             end if
           case(2)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,  0-dh,k) = factor+sgn*p(i,1+dh,k)
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,n+1+dh,k) = factor+sgn*p(i,n-dh,k)
@@ -313,16 +313,16 @@ module mod_bound
             end if
           case(3)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,j,  0-dh) = factor+sgn*p(i,j,1+dh)
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,j,n+1+dh) = factor+sgn*p(i,j,n-dh)
@@ -334,16 +334,16 @@ module mod_bound
           select case(idir)
           case(1)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   p(0-dh,j,k) = factor
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   p(n+1,j,k) = p(n-1,j,k) ! unused
@@ -353,16 +353,16 @@ module mod_bound
             end if
           case(2)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,0-dh,k) = factor
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,n+1,k) = p(i,n-1,k) ! unused
@@ -372,16 +372,16 @@ module mod_bound
             end if
           case(3)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,j,0-dh) = factor
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   p(i,j,n+1) = p(i,j,n-1) ! unused
@@ -394,8 +394,8 @@ module mod_bound
           select case(idir)
           case(1)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   !p(0-dh,j,k) = 1./3.*(-2.*factor+4.*p(1+dh,j,k)-p(2+dh,j,k))
@@ -403,8 +403,8 @@ module mod_bound
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do j=1-nh,size(p,2)-nh
                   !p(n+1,j,k) = 1./3.*(-2.*factor+4.*p(n-1,j,k)-p(n-2,j,k))
@@ -415,8 +415,8 @@ module mod_bound
             end if
           case(2)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   !p(i,0-dh,k) = 1./3.*(-2.*factor+4.*p(i,1+dh,k)-p(i,2+dh,k))
@@ -424,8 +424,8 @@ module mod_bound
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do k=1-nh,size(p,3)-nh
                 do i=1-nh,size(p,1)-nh
                   !p(i,n+1,k) = 1./3.*(-2.*factor+4.*p(i,n-1,k)-p(i,n-2,k))
@@ -436,8 +436,8 @@ module mod_bound
             end if
           case(3)
             if     (ibound == 0) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   !p(i,j,0-dh) = 1./3.*(-2.*factor+4.*p(i,j,1+dh)-p(i,j,2+dh))
@@ -445,8 +445,8 @@ module mod_bound
                 end do
               end do
             else if(ibound == 1) then
-              !$acc parallel loop collapse(2) default(present) async(1)
-              !$OMP parallel do   collapse(2) DEFAULT(shared)
+              !$acc parallel     loop collapse(2) default(present) async(1)
+              !$omp target teams loop collapse(2)
               do j=1-nh,size(p,2)-nh
                 do i=1-nh,size(p,1)-nh
                   !p(i,j,n+1) = 1./3.*(-2.*factor+4.*p(i,j,n-1)-p(i,j,n-2))
@@ -475,8 +475,8 @@ module mod_bound
         if(is_bound(0,1)) then
           n(:) = shape(u) - 2*1
           i = 0
-          !$acc parallel loop collapse(2) default(present) async(1)
-          !$OMP parallel do   collapse(2) DEFAULT(shared)
+          !$acc parallel     loop collapse(2) default(present) async(1)
+          !$omp target teams loop collapse(2)
           do k=1,n(3)
             do j=1,n(2)
               u(i,j,k) = vel2d(j,k)
@@ -487,8 +487,8 @@ module mod_bound
         if(is_bound(0,2)) then
           n(:) = shape(v) - 2*1
           j = 0
-          !$acc parallel loop collapse(2) default(present) async(1)
-          !$OMP parallel do   collapse(2) DEFAULT(shared)
+          !$acc parallel     loop collapse(2) default(present) async(1)
+          !$omp target teams loop collapse(2)
           do k=1,n(3)
             do i=1,n(1)
               v(i,j,k) = vel2d(i,k)
@@ -499,8 +499,8 @@ module mod_bound
         if(is_bound(0,3)) then
           n(:) = shape(w) - 2*1
           k = 0
-          !$acc parallel loop collapse(2) default(present) async(1)
-          !$OMP parallel do   collapse(2) DEFAULT(shared)
+          !$acc parallel     loop collapse(2) default(present) async(1)
+          !$omp target teams loop collapse(2)
           do j=1,n(2)
             do i=1,n(1)
               w(i,j,k) = vel2d(i,j)
@@ -533,8 +533,8 @@ module mod_bound
     !
     if(present(rhsbx)) then
       if(is_bound(0,1)) then
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do k=1,n(3)
           do j=1,n(2)
             p(1 ,j,k) = p(1 ,j,k) + rhsbx(j,k,0)*norm
@@ -543,8 +543,8 @@ module mod_bound
       end if
       if(is_bound(1,1)) then
         nn = n(1)-q(1)
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do k=1,n(3)
           do j=1,n(2)
             p(nn,j,k) = p(nn,j,k) + rhsbx(j,k,1)*norm
@@ -554,8 +554,8 @@ module mod_bound
     end if
     if(present(rhsby)) then
       if(is_bound(0,2)) then
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do k=1,n(3)
           do i=1,n(1)
             p(i,1 ,k) = p(i,1 ,k) + rhsby(i,k,0)*norm
@@ -564,8 +564,8 @@ module mod_bound
       end if
       if(is_bound(1,2)) then
         nn = n(2)-q(2)
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do k=1,n(3)
           do i=1,n(1)
             p(i,nn,k) = p(i,nn,k) + rhsby(i,k,1)*norm
@@ -575,8 +575,8 @@ module mod_bound
     end if
     if(present(rhsbz)) then
       if(is_bound(0,3)) then
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do j=1,n(2)
           do i=1,n(1)
             p(i,j,1 ) = p(i,j,1 ) + rhsbz(i,j,0)*norm
@@ -585,8 +585,8 @@ module mod_bound
       end if
       if(is_bound(1,3)) then
         nn = n(3)-q(3)
-        !$acc parallel loop collapse(2) default(present) async(1)
-        !$OMP parallel do   collapse(2) DEFAULT(shared)
+        !$acc parallel     loop collapse(2) default(present) async(1)
+        !$omp target teams loop collapse(2)
         do j=1,n(2)
           do i=1,n(1)
             p(i,j,nn) = p(i,j,nn) + rhsbz(i,j,1)*norm
@@ -710,7 +710,7 @@ module mod_bound
 #endif
     end select
   end subroutine updthalo
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   subroutine updthalo_gpu(nh,periods,p,idir_only)
     use mod_types
 #if !defined(_USE_DIEZDECOMP)
@@ -729,7 +729,8 @@ module mod_bound
     integer , intent(in), optional :: idir_only
     integer :: idir,istat
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(p,work)
+    !$acc   host_data use_device(     p,work)
+    !$omp target data use_device_addr(p,work)
 #endif
     do idir=1,3
       if(idir == ipencil_axis) cycle
@@ -746,7 +747,8 @@ module mod_bound
       end select
     end do
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
   end subroutine updthalo_gpu
 #endif

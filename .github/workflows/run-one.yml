@@ -30,14 +30,17 @@ jobs:
             flags: "FFLAGS_OPT=1 OPENMP=1 LIBS+=-lfftw3_threads"
       fail-fast: false # ensures that jobs run in parallel
     env:
+      SKIP_BUILD: ${{ matrix.mode.name == 'opt-omp' }} # skipped combinations
       NVHPC_CPU_TARGET: ${{ inputs.cpu_target }}
     name: build-${{ matrix.mode.name }}
     steps:
     - name: Checkout code
+      if: ${{ env.SKIP_BUILD != 'true' }}
       uses: actions/checkout@v7
       with:
         submodules: true
     - name: Set up the environment and get packages
+      if: ${{ env.SKIP_BUILD != 'true' }}
       uses: ./.github/actions/build
       with:
         name: ${{ inputs.compiler }}-${{ matrix.mode.name }}

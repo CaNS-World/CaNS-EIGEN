@@ -31,8 +31,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: uuip,uuim,vujp,vujm,wukp,wukm
     !
-    !$acc parallel loop collapse(3) default(present) private(uuip,uuim,vujp,vujm,wukp,wukm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uuip,uuim,vujp,vujm,wukp,wukm)
+    !$acc parallel     loop collapse(3) default(present) private(uuip,uuim,vujp,vujm,wukp,wukm) async(1)
+    !$omp target teams loop collapse(3)                  private(uuip,uuim,vujp,vujm,wukp,wukm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -63,8 +63,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: uvip,uvim,vvjp,vvjm,wvkp,wvkm
     !
-    !$acc parallel loop collapse(3) default(present) private(uvip,uvim,vvjp,vvjm,wvkp,wvkm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uvip,uvim,vvjp,vvjm,wvkp,wvkm)
+    !$acc parallel     loop collapse(3) default(present) private(uvip,uvim,vvjp,vvjm,wvkp,wvkm) async(1)
+    !$omp target teams loop collapse(3)                  private(uvip,uvim,vvjp,vvjm,wvkp,wvkm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -95,8 +95,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: uwip,uwim,vwjp,vwjm,wwkp,wwkm
     !
-    !$acc parallel loop collapse(3) default(present) private(uwip,uwim,vwjp,vwjm,wwkp,wwkm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uwip,uwim,vwjp,vwjm,wwkp,wwkm)
+    !$acc parallel     loop collapse(3) default(present) private(uwip,uwim,vwjp,vwjm,wwkp,wwkm) async(1)
+    !$omp target teams loop collapse(3)                  private(uwip,uwim,vwjp,vwjm,wwkp,wwkm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -138,10 +138,11 @@ module mod_mom
         rdxm(i) = dxci(i)/dxfi(i  )
         rdxp(i) = dxci(i)/dxfi(i+1)
       end do
-      !$acc enter data copyin(rdxm,rdxp) async(1)
+      !$acc        enter data copyin(rdxm,rdxp) async(1)
+      !$omp target enter data map(to:rdxm,rdxp)
     end if
-    !$acc parallel loop collapse(3) default(present) private(uuip,uuim,vujp,vujm,wukp,wukm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uuip,uuim,vujp,vujm,wukp,wukm)
+    !$acc parallel     loop collapse(3) default(present) private(uuip,uuim,vujp,vujm,wukp,wukm) async(1)
+    !$omp target teams loop collapse(3)                  private(uuip,uuim,vujp,vujm,wukp,wukm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -183,10 +184,11 @@ module mod_mom
         rdym(j) = dyci(j)/dyfi(j  )
         rdyp(j) = dyci(j)/dyfi(j+1)
       end do
-      !$acc enter data copyin(rdym,rdyp) async(1)
+      !$acc        enter data copyin(rdym,rdyp) async(1)
+      !$omp target enter data map(to:rdym,rdyp)
     end if
-    !$acc parallel loop collapse(3) default(present) private(uvip,uvim,vvjp,vvjm,wvkp,wvkm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uvip,uvim,vvjp,vvjm,wvkp,wvkm)
+    !$acc parallel     loop collapse(3) default(present) private(uvip,uvim,vvjp,vvjm,wvkp,wvkm) async(1)
+    !$omp target teams loop collapse(3)                  private(uvip,uvim,vvjp,vvjm,wvkp,wvkm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -229,9 +231,10 @@ module mod_mom
         rdzp(k) = dzci(k)/dzfi(k+1)
       end do
       !$acc enter data copyin(rdzm,rdzp) async(1)
+      !$omp target enter data map(to:rdzm,rdzp)
     end if
-    !$acc parallel loop collapse(3) default(present) private(uwip,uwim,vwjp,vwjm,wwkp,wwkm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(uwip,uwim,vwjp,vwjm,wwkp,wwkm)
+    !$acc parallel     loop collapse(3) default(present) private(uwip,uwim,vwjp,vwjm,wwkp,wwkm) async(1)
+    !$omp target teams loop collapse(3)                  private(uwip,uwim,vwjp,vwjm,wwkp,wwkm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -263,8 +266,8 @@ module mod_mom
     real(rp) :: dudxp,dudxm,dudyp,dudym,dudzp,dudzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dudxp,dudxm,dudyp,dudym,dudzp,dudzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudxp,dudxm,dudyp,dudym,dudzp,dudzm)
+    !$acc parallel     loop collapse(3) default(present) private(dudxp,dudxm,dudyp,dudym,dudzp,dudzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dudxp,dudxm,dudyp,dudym,dudzp,dudzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -293,8 +296,8 @@ module mod_mom
     real(rp) :: dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -323,8 +326,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm
     !
-    !$acc parallel loop collapse(3) default(present) private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -352,8 +355,8 @@ module mod_mom
     real(rp), dimension( :, :, :), intent(out) :: dudt
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -372,8 +375,8 @@ module mod_mom
     real(rp), dimension( :, :, :), intent(out) :: dvdt
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -392,8 +395,8 @@ module mod_mom
     real(rp), dimension( :, :, :), intent(out) :: dwdt
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -413,8 +416,8 @@ module mod_mom
     real(rp) :: dudzp,dudzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dudzp,dudzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudzp,dudzm)
+    !$acc parallel     loop collapse(3) default(present) private(dudzp,dudzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dudzp,dudzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -437,8 +440,8 @@ module mod_mom
     real(rp) :: dvdzp,dvdzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dvdzp,dvdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdzp,dvdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dvdzp,dvdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dvdzp,dvdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -461,8 +464,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: dwdzp,dwdzm
     !
-    !$acc parallel loop collapse(3) default(present) private(dwdzp,dwdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdzp,dwdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dwdzp,dwdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dwdzp,dwdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -485,8 +488,8 @@ module mod_mom
     real(rp) :: dudxp,dudxm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dudxp,dudxm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudxp,dudxm)
+    !$acc parallel     loop collapse(3) default(present) private(dudxp,dudxm) async(1)
+    !$omp target teams loop collapse(3)                  private(dudxp,dudxm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -508,8 +511,8 @@ module mod_mom
     real(rp) :: dvdxp,dvdxm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dvdxp,dvdxm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdxp,dvdxm)
+    !$acc parallel     loop collapse(3) default(present) private(dvdxp,dvdxm) async(1)
+    !$omp target teams loop collapse(3)                  private(dvdxp,dvdxm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -531,8 +534,8 @@ module mod_mom
     real(rp) :: dwdxp,dwdxm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dwdxp,dwdxm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdxp,dwdxm)
+    !$acc parallel     loop collapse(3) default(present) private(dwdxp,dwdxm) async(1)
+    !$omp target teams loop collapse(3)                  private(dwdxp,dwdxm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -554,8 +557,8 @@ module mod_mom
     real(rp) :: dudyp,dudym,dudzp,dudzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dudyp,dudym,dudzp,dudzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudyp,dudym,dudzp,dudzm)
+    !$acc parallel     loop collapse(3) default(present) private(dudyp,dudym,dudzp,dudzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dudyp,dudym,dudzp,dudzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -581,8 +584,8 @@ module mod_mom
     real(rp) :: dvdyp,dvdym,dvdzp,dvdzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dvdyp,dvdym,dvdzp,dvdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdyp,dvdym,dvdzp,dvdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dvdyp,dvdym,dvdzp,dvdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dvdyp,dvdym,dvdzp,dvdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -608,8 +611,8 @@ module mod_mom
     real(rp) :: dwdyp,dwdym,dwdzp,dwdzm
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dwdyp,dwdym,dwdzp,dwdzm) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdyp,dwdym,dwdzp,dwdzm)
+    !$acc parallel     loop collapse(3) default(present) private(dwdyp,dwdym,dwdzp,dwdzm) async(1)
+    !$omp target teams loop collapse(3)                  private(dwdyp,dwdym,dwdzp,dwdzm)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -635,8 +638,8 @@ module mod_mom
     real(rp) :: dudxp,dudxm,dudyp,dudym
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dudxp,dudxm,dudyp,dudym) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dudxp,dudxm,dudyp,dudym)
+    !$acc parallel     loop collapse(3) default(present) private(dudxp,dudxm,dudyp,dudym) async(1)
+    !$omp target teams loop collapse(3)                  private(dudxp,dudxm,dudyp,dudym)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -662,8 +665,8 @@ module mod_mom
     real(rp) :: dvdxp,dvdxm,dvdyp,dvdym
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) private(dvdxp,dvdxm,dvdyp,dvdym) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dvdxp,dvdxm,dvdyp,dvdym)
+    !$acc parallel     loop collapse(3) default(present) private(dvdxp,dvdxm,dvdyp,dvdym) async(1)
+    !$omp target teams loop collapse(3)                  private(dvdxp,dvdxm,dvdyp,dvdym)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -689,8 +692,8 @@ module mod_mom
     integer :: i,j,k
     real(rp) :: dwdxp,dwdxm,dwdyp,dwdym
     !
-    !$acc parallel loop collapse(3) default(present) private(dwdxp,dwdxm,dwdyp,dwdym) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)  PRIVATE(dwdxp,dwdxm,dwdyp,dwdym)
+    !$acc parallel     loop collapse(3) default(present) private(dwdxp,dwdxm,dwdyp,dwdym) async(1)
+    !$omp target teams loop collapse(3)                  private(dwdxp,dwdxm,dwdyp,dwdym)
     do k=1,nz
       do j=1,ny
         do i=1,nx
@@ -736,10 +739,11 @@ module mod_mom
     tau21p = 0.; tau21m = 0.
     tau31p = 0.; tau31m = 0.
     if(is_cmpt(1)) then
-      !$acc data copy(tau21p,tau21m,tau31p,tau31m) async(1)
+      !$acc        data copy(      tau21p,tau21m,tau31p,tau31m) async(1)
+      !$omp target data map(tofrom:tau21p,tau21m,tau31p,tau31m)
       if(is_bound(0,2).and.cbcpre(0,2)//cbcpre(1,2) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dudyp) reduction(+:tau21p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudyp) reduction(+:tau21p)
+        !$acc parallel     loop collapse(2) default(present) private(dudyp) reduction(+:tau21p) async(1)
+        !$omp target teams loop collapse(2)                  private(dudyp) reduction(+:tau21p)
         do k=1,nz
           do i=1,nx
             dudyp  = (u(i,1 ,k)-u(i,0   ,k))*dyci(0)*visc
@@ -748,8 +752,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,2).and.cbcpre(0,2)//cbcpre(1,2) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dudym) reduction(+:tau21m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudym) reduction(+:tau21m)
+        !$acc parallel     loop collapse(2) default(present) private(dudym) reduction(+:tau21m) async(1)
+        !$omp target teams loop collapse(2)                  private(dudym) reduction(+:tau21m)
         do k=1,nz
           do i=1,nx
             dudym  = (u(i,ny,k)-u(i,ny+1,k))*dyci(ny)*visc
@@ -758,8 +762,8 @@ module mod_mom
         end do
       end if
       if(is_bound(0,3).and.cbcpre(0,3)//cbcpre(1,3) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dudzp) reduction(+:tau31p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudzp) reduction(+:tau31p)
+        !$acc parallel     loop collapse(2) default(present) private(dudzp) reduction(+:tau31p) async(1)
+        !$omp target teams loop collapse(2)                  private(dudzp) reduction(+:tau31p)
         do j=1,ny
           do i=1,nx
             dudzp  = (u(i,j,1 )-u(i,j,0   ))*dzci(0)*visc
@@ -768,8 +772,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,3).and.cbcpre(0,3)//cbcpre(1,3) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dudzm) reduction(+:tau31m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dudzm) reduction(+:tau31m)
+        !$acc parallel     loop collapse(2) default(present) private(dudzm) reduction(+:tau31m) async(1)
+        !$omp target teams loop collapse(2)                  private(dudzm) reduction(+:tau31m)
         do j=1,ny
           do i=1,nx
             dudzm  = (u(i,j,nz)-u(i,j,nz+1))*dzci(nz)*visc
@@ -777,16 +781,18 @@ module mod_mom
           end do
         end do
       end if
-      !$acc end data
+      !$omp end target data
+      !$acc end        data
     end if
     !
     tau12p = 0.; tau12m = 0.
     tau32p = 0.; tau32m = 0.
     if(is_cmpt(2)) then
-      !$acc data copy(tau12p,tau12m,tau32p,tau32m) async(1)
+      !$acc        data copy(      tau12p,tau12m,tau32p,tau32m) async(1)
+      !$omp target data map(tofrom:tau12p,tau12m,tau32p,tau32m)
       if(is_bound(0,1).and.cbcpre(0,1)//cbcpre(1,1) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dvdxp) reduction(+:tau12p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdxp) reduction(+:tau12p)
+        !$acc parallel     loop collapse(2) default(present) private(dvdxp) reduction(+:tau12p) async(1)
+        !$omp target teams loop collapse(2)                  private(dvdxp) reduction(+:tau12p)
         do k=1,nz
           do j=1,ny
             dvdxp  = (v(1  ,j,k)-v(0  ,j,k))*dxci(0)*visc
@@ -795,8 +801,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,1).and.cbcpre(0,1)//cbcpre(1,1) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dvdxm) reduction(+:tau12m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdxm) reduction(+:tau12m)
+        !$acc parallel     loop collapse(2) default(present) private(dvdxm) reduction(+:tau12m) async(1)
+        !$omp target teams loop collapse(2)                  private(dvdxm) reduction(+:tau12m)
         do k=1,nz
           do j=1,ny
             dvdxm  = (v(nx,j,k)-v(nx+1,j,k))*dxci(nx)*visc
@@ -805,8 +811,8 @@ module mod_mom
         end do
       end if
       if(is_bound(0,3).and.cbcpre(0,3)//cbcpre(1,3) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dvdzp) reduction(+:tau32p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdzp) reduction(+:tau32p)
+        !$acc parallel     loop collapse(2) default(present) private(dvdzp) reduction(+:tau32p) async(1)
+        !$omp target teams loop collapse(2)                  private(dvdzp) reduction(+:tau32p)
         do j=1,ny
           do i=1,nx
             dvdzp  = (v(i,j,1 )-v(i,j,0   ))*dzci(0)*visc
@@ -815,8 +821,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,3).and.cbcpre(0,3)//cbcpre(1,3) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dvdzm) reduction(+:tau32m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dvdzm) reduction(+:tau32m)
+        !$acc parallel     loop collapse(2) default(present) private(dvdzm) reduction(+:tau32m) async(1)
+        !$omp target teams loop collapse(2)                  private(dvdzm) reduction(+:tau32m)
         do j=1,ny
           do i=1,nx
             dvdzm  = (v(i,j,nz)-v(i,j,nz+1))*dzci(nz)*visc
@@ -824,16 +830,18 @@ module mod_mom
           end do
         end do
       end if
-      !$acc end data
+      !$omp end target data
+      !$acc end        data
     end if
     !
     tau13p = 0.; tau13m = 0.
     tau23p = 0.; tau23m = 0.
     if(is_cmpt(3)) then
-      !$acc data copy(tau13p,tau13m,tau23p,tau23m) async(1)
+      !$acc        data copy(      tau13p,tau13m,tau23p,tau23m) async(1)
+      !$omp target data map(tofrom:tau13p,tau13m,tau23p,tau23m)
       if(is_bound(0,1).and.cbcpre(0,1)//cbcpre(1,1) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dwdxp) reduction(+:tau13p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdxp) reduction(+:tau13p)
+        !$acc parallel     loop collapse(2) default(present) private(dwdxp) reduction(+:tau13p) async(1)
+        !$omp target teams loop collapse(2)                  private(dwdxp) reduction(+:tau13p)
         do k=1,nz
           do j=1,ny
             dwdxp  = (w(1 ,j,k)-w(0   ,j,k))*dxci(0)*visc
@@ -842,8 +850,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,1).and.cbcpre(0,1)//cbcpre(1,1) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dwdxm) reduction(+:tau13m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdxm) reduction(+:tau13m)
+        !$acc parallel     loop collapse(2) default(present) private(dwdxm) reduction(+:tau13m) async(1)
+        !$omp target teams loop collapse(2)                  private(dwdxm) reduction(+:tau13m)
         do k=1,nz
           do j=1,ny
             dwdxm  = (w(nx,j,k)-w(nx+1,j,k))*dxci(nx)*visc
@@ -852,8 +860,8 @@ module mod_mom
         end do
       end if
       if(is_bound(0,2).and.cbcpre(0,2)//cbcpre(1,2) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dwdyp) reduction(+:tau23p) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdyp) reduction(+:tau23p)
+        !$acc parallel     loop collapse(2) default(present) private(dwdyp) reduction(+:tau23p) async(1)
+        !$omp target teams loop collapse(2)                  private(dwdyp) reduction(+:tau23p)
         do k=1,nz
           do i=1,nx
             dwdyp  = (w(i,1,k )-w(i,0   ,k))*dyci(0)*visc
@@ -862,8 +870,8 @@ module mod_mom
         end do
       end if
       if(is_bound(1,2).and.cbcpre(0,2)//cbcpre(1,2) /= 'PP') then
-        !$acc parallel loop collapse(2) default(present) private(dwdym) reduction(+:tau23m) async(1)
-        !$OMP PARALLEL DO   COLLAPSE(2) default(shared ) private(dwdym) reduction(+:tau23m)
+        !$acc parallel     loop collapse(2) default(present) private(dwdym) reduction(+:tau23m) async(1)
+        !$omp target teams loop collapse(2)                  private(dwdym) reduction(+:tau23m)
         do k=1,nz
           do i=1,nx
             dwdym  = (w(i,ny,k)-w(i,ny+1,k))*dyci(ny)*visc
@@ -871,7 +879,8 @@ module mod_mom
           end do
         end do
       end if
-      !$acc end data
+      !$omp end target data
+      !$acc end        data
     end if
     !$acc wait(1)
     tau(:,:,:) = 0.
@@ -897,8 +906,8 @@ module mod_mom
     integer  :: i,j,k
     if(is_forced(1)) then
       ff = f(1)
-      !$acc parallel loop collapse(3) default(present) async(1)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -909,8 +918,8 @@ module mod_mom
     end if
     if(is_forced(2)) then
       ff = f(2)
-      !$acc parallel loop collapse(3) default(present) async(1)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -921,8 +930,8 @@ module mod_mom
     end if
     if(is_forced(3)) then
       ff = f(3)
-      !$acc parallel loop collapse(3) default(present) async(1)
-      !$OMP parallel do   collapse(3) DEFAULT(shared)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -971,6 +980,7 @@ module mod_mom
         rdxp(i) = dxci(i)/dxfi(i+1)
       end do
       !$acc enter data copyin(rdxm,rdxp) async(1)
+      !$omp target enter data map(to:rdxm,rdxp)
     end if
     if(.not.allocated(rdym) .and. .not.allocated(rdyp)) then
       allocate(rdym, mold = dyci)
@@ -980,6 +990,7 @@ module mod_mom
         rdyp(j) = dyci(j)/dyfi(j+1)
       end do
       !$acc enter data copyin(rdym,rdyp) async(1)
+      !$omp target enter data map(to:rdym,rdyp)
     end if
     if(.not.allocated(rdzm) .and. .not.allocated(rdzp)) then
       allocate(rdzm, mold = dzci)
@@ -989,9 +1000,10 @@ module mod_mom
         rdzp(k) = dzci(k)/dzfi(k+1)
       end do
       !$acc enter data copyin(rdzm,rdzp) async(1)
+      !$omp target enter data map(to:rdzm,rdzp)
     end if
 #if !defined(_LOOP_UNSWITCHING)
-    !$acc parallel loop collapse(3) default(present) async(1) &
+    !$acc parallel     loop collapse(3) default(present) async(1) &
     !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
     !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
     !$acc private(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1004,7 +1016,7 @@ module mod_mom
     !$acc private(dudt_s ,dvdt_s ,dwdt_s ) &
     !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
     !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
+    !$omp target teams loop collapse(3) &
     !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
     !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
     !$OMP PRIVATE(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1194,13 +1206,13 @@ module mod_mom
             dudt(i,j,k) = dudt_s
             dvdt(i,j,k) = dvdt_s
             dwdt(i,j,k) = dwdt_s
-          endif
+          end if
         end do
       end do
     end do
 #else
     if(impdiff_mode == impdiff_explicit) then
-      !$acc parallel loop collapse(3) default(present) async(1) &
+      !$acc parallel     loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$acc private(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1213,7 +1225,7 @@ module mod_mom
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
       !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
+      !$omp target teams loop collapse(3) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$OMP PRIVATE(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1344,7 +1356,7 @@ module mod_mom
         end do
       end do
     else if(impdiff_mode == impdiff_z) then
-      !$acc parallel loop collapse(3) default(present) async(1) &
+      !$acc parallel     loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$acc private(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1357,7 +1369,7 @@ module mod_mom
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
       !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
+      !$omp target teams loop collapse(3) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$OMP PRIVATE(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1494,7 +1506,7 @@ module mod_mom
         end do
       end do
     else if(impdiff_mode == impdiff_yz) then
-      !$acc parallel loop collapse(3) default(present) async(1) &
+      !$acc parallel     loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$acc private(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1507,7 +1519,7 @@ module mod_mom
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
       !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
+      !$omp target teams loop collapse(3) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$OMP PRIVATE(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1644,7 +1656,7 @@ module mod_mom
         end do
       end do
     else if(impdiff_mode == impdiff_xyz) then
-      !$acc parallel loop collapse(3) default(present) async(1) &
+      !$acc parallel     loop collapse(3) default(present) async(1) &
       !$acc private(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$acc private(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$acc private(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &
@@ -1657,7 +1669,7 @@ module mod_mom
       !$acc private(dudt_s,dvdt_s,dwdt_s) &
       !$acc private(dudtd_s,dvdtd_s,dwdtd_s) &
       !$acc private(dudtd_x_s,dudtd_y_s,dudtd_z_s,dvdtd_x_s,dvdtd_y_s,dvdtd_z_s,dwdtd_x_s,dwdtd_y_s,dwdtd_z_s)
-      !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared) &
+      !$omp target teams loop collapse(3) &
       !$OMP PRIVATE(u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp) &
       !$OMP PRIVATE(v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp) &
       !$OMP PRIVATE(w_ccm,w_pcm,w_cpm,w_cmc,w_pmc,w_mcc,w_ccc,w_pcc,w_mpc,w_cpc,w_cmp,w_mcp,w_ccp) &

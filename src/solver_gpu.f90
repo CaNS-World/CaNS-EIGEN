@@ -5,7 +5,7 @@
 !
 ! -
 module mod_solver_gpu
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   use, intrinsic :: iso_c_binding, only: C_PTR
 #if !defined(_USE_DIEZDECOMP)
   use cudecomp
@@ -120,7 +120,8 @@ module mod_solver_gpu
     !
     select case(ipencil_axis)
     case(1)
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -132,7 +133,8 @@ module mod_solver_gpu
       ap_io = ap_x_0
       pad_io(:) = ap_x%shape(:) - ap_io%shape(:)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(p,px,work)
+      !$acc   host_data use_device(     p,px,work)
+      !$omp target data use_device_addr(p,px,work)
 #endif
       istat = cudecompTransposeYtoX(ch,gd_io,p ,px,work,dtype_rp,input_halo_extents  = [1,1,1], &
                                                                  output_halo_extents = [0,0,0], &
@@ -140,7 +142,8 @@ module mod_solver_gpu
                                                                  output_padding      = pad_io, &
                                                                  stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
     case(3)
       if(.not.is_diezdecomp_x2z_z2x_transposes) then
@@ -148,7 +151,8 @@ module mod_solver_gpu
         pad_io(:) = ap_y%shape(:) - ap_io%shape(:)
 #if !defined(_USE_DIEZDECOMP)
         pad_io(ap_y%order(:)) = pad_io(:)
-        !$acc host_data use_device(p,py,px,work)
+        !$acc   host_data use_device(     p,py,px,work)
+        !$omp target data use_device_addr(p,py,px,work)
 #endif
         istat = cudecompTransposeZtoY(ch,gd_io,p ,py,work,dtype_rp,input_halo_extents  = [1,1,1], &
                                                                    output_halo_extents = [0,0,0], &
@@ -157,11 +161,13 @@ module mod_solver_gpu
                                                                    stream=istream)
         istat = cudecompTransposeYtoX(ch,gd   ,py,px,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+        !$omp end target data
+        !$acc end   host_data
 #endif
       else
 #if defined(_USE_DIEZDECOMP)
-        !$acc parallel loop collapse(3) default(present) async(1)
+  !$acc parallel     loop collapse(3) default(present) async(1)
+  !$omp target teams loop collapse(3)
         do k=1,n(3)
           do j=1,n(2)
             do i=1,n(1)
@@ -177,14 +183,17 @@ module mod_solver_gpu
     if(is_fft(1)) then
       call fft_gpu('F',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(1,1),px,pfft_tmp_x)
     else
-      !$acc host_data use_device(eigvecx_fwd,px_1,px_2)
+      !$acc   host_data use_device(     eigvecx_fwd,px_1,px_2)
+      !$omp target data use_device_addr(eigvecx_fwd,px_1,px_2)
       istat = gemm(gh,op_n,op_n,ng(1),n_x(2)*n_x(3),ng(1),1._rp, &
                    eigvecx_fwd,ng(1),px_1,ng(1),0._rp,px_2,ng(1))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(px,py,px_2,py_2,work)
+    !$acc   host_data use_device(     px,py,px_2,py_2,work)
+    !$omp target data use_device_addr(px,py,px_2,py_2,work)
 #endif
     if(all(is_fft(:))) then
       istat = cudecompTransposeXtoY(ch,gd,px  ,py  ,work,dtype_rp,stream=istream)
@@ -194,43 +203,51 @@ module mod_solver_gpu
       istat = cudecompTransposeXtoY(ch,gd,px_2,py_2,work,dtype_rp,stream=istream)
     end if
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
     if(is_fft(2)) then
       call fft_gpu('F',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(1,2),py,pfft_tmp_y)
     else
-      !$acc host_data use_device(eigvecy_fwd,py_2,py_1)
+      !$acc   host_data use_device(     eigvecy_fwd,py_2,py_1)
+      !$omp target data use_device_addr(eigvecy_fwd,py_2,py_1)
       istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
                    eigvecy_fwd,ng(2),py_2,ng(2),0._rp,py_1,ng(2))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
     q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.hi_z_0(3) == ng(3))
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
     if(.not.is_poisson_dtdma) then
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(py,pz,work)
+      !$acc   host_data use_device(     py,pz,work)
+      !$omp target data use_device_addr(py,pz,work)
 #endif
       istat = cudecompTransposeYtoZ(ch,gd,py,pz,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
       !
       call gaussel_gpu(n_z_0(1),n_z_0(2),n_z_0(3)-q,0,a,b,c,is_periodic_z,norm,pz,work,pz_aux_1,lambdaxy)
       !
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(pz,py,work)
+      !$acc   host_data use_device(     pz,py,work)
+      !$omp target data use_device_addr(pz,py,work)
 #endif
       istat = cudecompTransposeZtoY(ch,gd,pz,py,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
     else
       !
       ! transpose py -> pz with non-axis-contiguous layout
       !
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n_y_3
         do j=1,n_y_2
           do i=1,n_y_1
@@ -244,7 +261,8 @@ module mod_solver_gpu
       !
       ! transpose pz -> py with axis-contiguous layout
       !
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n_y_3
         do j=1,n_y_2
           do i=1,n_y_1
@@ -257,14 +275,17 @@ module mod_solver_gpu
     if(is_fft(2)) then
       call fft_gpu('B',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(2,2),py,pfft_tmp_y)
     else
-      !$acc host_data use_device(eigvecy_bwd,py_1,py_2)
+      !$acc   host_data use_device(     eigvecy_bwd,py_1,py_2)
+      !$omp target data use_device_addr(eigvecy_bwd,py_1,py_2)
       istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
                    eigvecy_bwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(py,px,py_2,px_2,work)
+    !$acc   host_data use_device(     py,px,py_2,px_2,work)
+    !$omp target data use_device_addr(py,px,py_2,px_2,work)
 #endif
     if(all(is_fft(:))) then
       istat = cudecompTransposeYtoX(ch,gd,py  ,px  ,work,dtype_rp,stream=istream)
@@ -274,21 +295,25 @@ module mod_solver_gpu
       istat = cudecompTransposeYtoX(ch,gd,py_2,px_2,work,dtype_rp,stream=istream)
     end if
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
     if(is_fft(1)) then
       call fft_gpu('B',bc(0,1)//bc(1,1),c_or_f(1),ng(1),n_x,arrplan(2,1),px,pfft_tmp_x)
     else
-      !$acc host_data use_device(eigvecx_bwd,px_1,px_2)
+      !$acc   host_data use_device(     eigvecx_bwd,px_1,px_2)
+      !$omp target data use_device_addr(eigvecx_bwd,px_1,px_2)
       istat = gemm(gh,op_n,op_n,ng(1),n_x(2)*n_x(3),ng(1),1._rp, &
                    eigvecx_bwd,ng(1),px_2,ng(1),0._rp,px_1,ng(1))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
     select case(ipencil_axis)
     case(1)
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -298,7 +323,8 @@ module mod_solver_gpu
       end do
     case(2)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(px,p,work)
+      !$acc   host_data use_device(     px,p,work)
+      !$omp target data use_device_addr(px,p,work)
 #endif
       istat = cudecompTransposeXtoY(ch,gd_io,px,p ,work,dtype_rp,input_halo_extents  = [0,0,0], &
                                                                  output_halo_extents = [1,1,1], &
@@ -306,12 +332,14 @@ module mod_solver_gpu
                                                                  output_padding      = [0,0,0], &
                                                                  stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
     case(3)
       if(.not.is_diezdecomp_x2z_z2x_transposes) then
 #if !defined(_USE_DIEZDECOMP)
-        !$acc host_data use_device(px,py,p,work)
+        !$acc   host_data use_device(     px,py,p,work)
+        !$omp target data use_device_addr(px,py,p,work)
 #endif
         istat = cudecompTransposeXtoY(ch,gd   ,px,py,work,dtype_rp,stream=istream)
         istat = cudecompTransposeYtoZ(ch,gd_io,py,p ,work,dtype_rp,input_halo_extents  = [0,0,0], &
@@ -320,12 +348,14 @@ module mod_solver_gpu
                                                                    output_padding      = [0,0,0], &
                                                                    stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+       !$omp end target data
+       !$acc end   host_data
 #endif
       else
 #if defined(_USE_DIEZDECOMP)
         istat = diezdecompTransposeXtoZ(ch,gd,px,pz,work,dtype_rp,stream=istream)
-        !$acc parallel loop collapse(3) default(present) async(1)
+        !$acc parallel     loop collapse(3) default(present) async(1)
+        !$omp target teams loop collapse(3)
         do k=1,n(3)
           do j=1,n(2)
             do i=1,n(1)
@@ -356,7 +386,8 @@ module mod_solver_gpu
     nn = n
     if(is_periodic) nn = nn-1
     if(present(lambdaxy)) then
-      !$acc parallel loop gang vector collapse(2) default(present) private(den,lxy,pivot_tol,z) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(den,lxy,pivot_tol,z) async(1)
+      !$omp target teams loop             collapse(2)                  private(den,lxy,pivot_tol,z)
       do j=1,ny
         do i=1,nx
           lxy = lambdaxy(i,j)
@@ -389,7 +420,8 @@ module mod_solver_gpu
         end do
       end do
       if(is_periodic) then
-        !$acc parallel loop gang vector collapse(2) default(present) private(den,lxy,pivot_tol,z) async(1)
+        !$acc parallel     loop gang vector collapse(2) default(present) private(den,lxy,pivot_tol,z) async(1)
+        !$omp target teams loop             collapse(2)                  private(den,lxy,pivot_tol,z)
         do j=1,ny
           do i=1,nx
             lxy = lambdaxy(i,j)
@@ -433,7 +465,8 @@ module mod_solver_gpu
       end if
     else
       ! keep the sequential work arrays private to each (i,j) system.
-      !$acc parallel loop gang vector collapse(2) default(present) private(z) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(z) async(1)
+      !$omp target teams loop             collapse(2)                  private(z)
       do j=1,ny
         do i=1,nx
           z = 1._rp/b(1)
@@ -453,7 +486,8 @@ module mod_solver_gpu
         end do
       end do
       if(is_periodic) then
-        !$acc parallel loop gang vector collapse(2) default(present) private(z) async(1)
+        !$acc parallel     loop gang vector collapse(2) default(present) private(z) async(1)
+        !$omp target teams loop             collapse(2)                  private(z)
         do j=1,ny
           do i=1,nx
             !$acc loop seq
@@ -526,7 +560,8 @@ module mod_solver_gpu
         allocate(cc_z_0(nr_z(1),nr_z(2),nr_z(3)), &
                  pp_z_2(nr_z(1),nr_z(2),nr_z(3)))
       end if
-      !$acc enter data create(aa_y,cc_y,pp_y,aa_z,cc_z,pp_z,cc_z_0,pp_z_2) async(1)
+      !$acc        enter data create(   aa_y,cc_y,pp_y,aa_z,cc_z,pp_z,cc_z_0,pp_z_2) async(1)
+      !$omp target enter data map(alloc:aa_y,cc_y,pp_y,aa_z,cc_z,pp_z,cc_z_0,pp_z_2)
     end if
     !
     dk_g = lo-1
@@ -534,7 +569,8 @@ module mod_solver_gpu
       !
       ! factor inner rows of z-distributed systems so that they are only coupled to the boundaries:
       !
-      !$acc parallel loop gang vector collapse(2) default(present) private(lxy,z,z1,z2) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(lxy,z,z1,z2) async(1)
+      !$omp target teams loop             collapse(2)                  private(lxy,z,z1,z2)
       do j=1,ny
         do i=1,nx
           lxy = lambdaxy(i,j)
@@ -582,7 +618,8 @@ module mod_solver_gpu
       !
       ! factor inner rows of z-distributed systems so that they are only coupled to the boundaries:
       !
-      !$acc parallel loop gang vector collapse(2) default(present) private(z,z1,z2) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(z,z1,z2) async(1)
+      !$omp target teams loop             collapse(2)                  private(z,z1,z2)
       do j=1,ny
         do i=1,nx
           z1 = 1._rp/b(1+dk_g)
@@ -635,15 +672,18 @@ module mod_solver_gpu
       if(is_update) then
         is_update = .false.
 #if !defined(_USE_DIEZDECOMP)
-        !$acc host_data use_device(aa_y,cc_y,aa_z_save,cc_z_save,work)
+        !$acc   host_data use_device(     aa_y,cc_y,aa_z_save,cc_z_save,work)
+        !$omp target data use_device_addr(aa_y,cc_y,aa_z_save,cc_z_save,work)
 #endif
         istat = cudecompTransposeYtoZ(ch,gd_dtdma,aa_y,aa_z_save,work,dtype_rp,stream=istream)
         istat = cudecompTransposeYtoZ(ch,gd_dtdma,cc_y,cc_z_save,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-        !$acc end host_data
+        !$omp end target data
+        !$acc end   host_data
 #endif
       end if
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,nn
         do j=1,ny_r
           do i=1,nx_r
@@ -654,27 +694,32 @@ module mod_solver_gpu
       end do
     else
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(aa_y,cc_y,aa_z,cc_z,work)
+      !$acc   host_data use_device(     aa_y,cc_y,aa_z,cc_z,work)
+      !$omp target data use_device_addr(aa_y,cc_y,aa_z,cc_z,work)
 #endif
       istat = cudecompTransposeYtoZ(ch,gd_dtdma,aa_y,aa_z,work,dtype_rp,stream=istream)
       istat = cudecompTransposeYtoZ(ch,gd_dtdma,cc_y,cc_z,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
     end if
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_y,pp_z,work)
+    !$acc   host_data use_device(     pp_y,pp_z,work)
+    !$omp target data use_device_addr(pp_y,pp_z,work)
 #endif
     istat = cudecompTransposeYtoZ(ch,gd_dtdma,pp_y,pp_z,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
     ! solve reduced systems
     !
     if(is_periodic) then
       nn = nn-1
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,nn+1
         do j=1,ny_r
           do i=1,nx_r
@@ -683,7 +728,8 @@ module mod_solver_gpu
         end do
       end do
     end if
-    !$acc parallel loop gang vector collapse(2) default(present) private(z) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) private(z) async(1)
+    !$omp target teams loop             collapse(2)                  private(z)
     do j=1,ny_r
       do i=1,nx_r
         !$acc loop seq
@@ -700,7 +746,8 @@ module mod_solver_gpu
     end do
     if(is_periodic) then
       associate(cc_z => cc_z_0)
-      !$acc parallel loop gang vector collapse(2) default(present) private(z) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(z) async(1)
+      !$omp target teams loop             collapse(2)                  private(z)
       do j=1,ny_r
         do i=1,nx_r
           !$acc loop seq
@@ -735,16 +782,19 @@ module mod_solver_gpu
     ! transpose solution to the original z-distributed form
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_z,pp_y,work)
+    !$acc   host_data use_device(     pp_z,pp_y,work)
+    !$omp target data use_device_addr(pp_z,pp_y,work)
 #endif
     istat = cudecompTransposeZtoY(ch,gd_dtdma,pp_z,pp_y,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
     ! obtain final solution on the inner points
     !
-    !$acc parallel loop gang vector collapse(2) default(present) private(z) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) private(z) async(1)
+    !$omp target teams loop             collapse(2)                  private(z)
     do j=1,ny
       do i=1,nx
         p(i,j,1) = pp_y(i,j,1)
@@ -797,7 +847,8 @@ module mod_solver_gpu
       if(is_periodic) then
         allocate(pp_z_2(nr_z(3)))
       end if
-      !$acc enter data create(aa,bb,cc,aa_z,bb_z,cc_z,pp_x,pp_y,pp_z,pp_z_2)
+      !$acc        enter data create(   aa,bb,cc,aa_z,bb_z,cc_z,pp_x,pp_y,pp_z,pp_z_2)
+      !$omp target enter data map(alloc:aa,bb,cc,aa_z,bb_z,cc_z,pp_x,pp_y,pp_z,pp_z_2)
     end if
     !
     ! p_x <-> p_y transposes performed in-place, so that it is a no-op for (z-parallel) slab decomposition
@@ -810,7 +861,8 @@ module mod_solver_gpu
     aa_all(1:n+1,0:nranks_z-1) => work(0*(n+1)*nranks_z+1:1*(n+1)*nranks_z)
     bb_all(1:n+1,0:nranks_z-1) => work(1*(n+1)*nranks_z+1:2*(n+1)*nranks_z)
     cc_all(1:n+1,0:nranks_z-1) => work(2*(n+1)*nranks_z+1:3*(n+1)*nranks_z)
-    !$acc parallel loop gang default(present) private(nn,llo,k) async(1)
+    !$acc parallel     loop gang default(present) private(nn,llo,k) async(1)
+    !$omp target teams loop                       private(nn,llo,k)
     do islab=0,nranks_z-1
       !
       ! manual partitioning to avoid an MPI_ALLGATHER
@@ -864,7 +916,8 @@ module mod_solver_gpu
       cc_z(k+1) = cc_all(nn,islab)
     end do
     !
-    !$acc parallel loop default(present) async(1)
+    !$acc parallel     loop default(present) async(1)
+    !$omp target teams loop
     do k=1,n+1
       aa(k) = aa_all(k,myslab)
       bb(k) = bb_all(k,myslab)
@@ -877,31 +930,38 @@ module mod_solver_gpu
     dk_g = lo-1
     if(is_periodic) then
       nn = nn-1
-      !$acc parallel loop default(present) async(1)
+      !$acc parallel     loop default(present) async(1)
+      !$omp target teams loop
       do k=1,nn+1
         pp_z_2(k) = 0._rp
       end do
       !$acc parallel default(present) async(1)
+      !$omp target
       pp_z_2(1 ) = -aa_z(1 )
       pp_z_2(nn) = pp_z_2(nn) - cc_z(nn)
       pp_z_2(1 ) = pp_z_2(1)/bb_z(1)
+      !$omp end target
       !$acc end parallel
     end if
     !
     !$acc parallel default(present) async(1)
+    !$omp target
     cc_z(1) = cc_z(1)/bb_z(1)
     !$acc loop seq
     do k=2,nn
       cc_z(k) = cc_z(k)/(bb_z(k) - aa_z(k)*cc_z(k-1))
     end do
+    !$omp end target
     !$acc end parallel
-    !$acc parallel loop default(present) async(1)
+    !$acc parallel     loop default(present) async(1)
+    !$omp target teams loop
     do k=1,n
       bb(k) = bb(k)**(-1)
     end do
     !
     if(is_periodic) then
       !$acc parallel loop seq default(present) async(1)
+      !$omp target
       do k=2,nn
         pp_z_2(k) = (pp_z_2(k) - aa_z(k)*pp_z_2(k-1))/ &
                     (bb_z(  k) - aa_z(k)*cc_z(  k-1))
@@ -910,11 +970,13 @@ module mod_solver_gpu
       do k=nn-1,1,-1
         pp_z_2(k) = pp_z_2(k) - pp_z_2(k+1)*cc_z(k)
       end do
+      !$omp end target
     end if
     !
     ! solve distributed TDMA problem
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         p(i,j,1) = p(i,j,1)*norm
@@ -930,7 +992,8 @@ module mod_solver_gpu
       end do
     end do
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         pp_x(i,j,1) = p(i,j,1)
@@ -939,7 +1002,8 @@ module mod_solver_gpu
     end do
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_x,pp_y,pp_z,work)
+    !$acc   host_data use_device(     pp_x,pp_y,pp_z,work)
+    !$omp target data use_device_addr(pp_x,pp_y,pp_z,work)
 #endif
     if(.not.is_diezdecomp_x2z_z2x_transposes) then
       istat = cudecompTransposeXtoY(ch,gd_dtdma,pp_x,pp_y,work,dtype_rp,stream=istream)
@@ -950,10 +1014,12 @@ module mod_solver_gpu
 #endif
     end if
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny_r
       do i=1,nx_r
         pp_z(i,j,1) = pp_z(i,j,1)/bb_z(1)
@@ -970,7 +1036,8 @@ module mod_solver_gpu
     end do
     !
     if(is_periodic) then
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny_r
         do i=1,nx_r
           pp_z(i,j,nn+1) = (pp_z(i,j,nn+1) - cc_z(nn+1)*pp_z(  i,j,1) - aa_z(nn+1)*pp_z(  i,j,nn))/ &
@@ -984,7 +1051,8 @@ module mod_solver_gpu
     end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_z,pp_y,pp_x,work)
+    !$acc   host_data use_device(     pp_z,pp_y,pp_x,work)
+    !$omp target data use_device_addr(pp_z,pp_y,pp_x,work)
 #endif
     if(.not.is_diezdecomp_x2z_z2x_transposes) then
       istat = cudecompTransposeZtoY(ch,gd_dtdma,pp_z,pp_y,work,dtype_rp,stream=istream)
@@ -995,17 +1063,20 @@ module mod_solver_gpu
 #endif
     end if
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         p(i,j,1) = pp_x(i,j,1)
         p(i,j,n) = pp_x(i,j,2)
       end do
     end do
-    !$acc parallel loop gang vector collapse(3) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(3) default(present) async(1)
+    !$omp target teams loop             collapse(3)
     do k=2,n-1
       do j=1,ny
         do i=1,nx
@@ -1060,7 +1131,8 @@ module mod_solver_gpu
         ! reciprocal operations after the solution is obtained
         !
         case(1)
-          !$acc parallel loop collapse(3) default(present) async(1)
+          !$acc parallel     loop collapse(3) default(present) async(1)
+          !$omp target teams loop collapse(3)
           do k=1,n(3)
             do j=1,n(2)
               do i=1,n(1)
@@ -1069,7 +1141,8 @@ module mod_solver_gpu
             end do
           end do
 #if !defined(_USE_DIEZDECOMP)
-          !$acc host_data use_device(px,py,pz,work)
+          !$acc   host_data use_device(     px,py,pz,work)
+          !$omp target data use_device_addr(px,py,pz,work)
 #endif
           if(.not.is_diezdecomp_x2z_z2x_transposes) then
             istat = cudecompTransposeXtoY(ch,gd,px,py,work,dtype_rp,stream=istream)
@@ -1080,13 +1153,15 @@ module mod_solver_gpu
 #endif
           end if
 #if !defined(_USE_DIEZDECOMP)
-          !$acc end host_data
+          !$omp end target data
+          !$acc end   host_data
 #endif
         case(2)
           !
           ! transpose p -> py to axis-contiguous layout
           !
-          !$acc parallel loop collapse(3) default(present) async(1)
+          !$acc parallel     loop collapse(3) default(present) async(1)
+          !$omp target teams loop collapse(3)
           do k=1,n(3)
             do j=1,n(2)
               do i=1,n(1)
@@ -1095,11 +1170,13 @@ module mod_solver_gpu
             end do
           end do
 #if !defined(_USE_DIEZDECOMP)
-          !$acc host_data use_device(py,pz,work)
+          !$acc   host_data use_device(     py,pz,work)
+          !$omp target data use_device_addr(py,pz,work)
 #endif
           istat = cudecompTransposeYtoZ(ch,gd,py,pz,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-          !$acc end host_data
+          !$omp end target data
+          !$acc end   host_data
 #endif
         case(3)
         end select
@@ -1122,7 +1199,8 @@ module mod_solver_gpu
       select case(ipencil_axis)
       case(1)
 #if !defined(_USE_DIEZDECOMP)
-        !$acc host_data use_device(pz,py,px,work)
+        !$acc   host_data use_device(     pz,py,px,work)
+        !$omp target data use_device_addr(pz,py,px,work)
 #endif
         if(.not.is_diezdecomp_x2z_z2x_transposes) then
           istat = cudecompTransposeZtoY(ch,gd,pz,py,work,dtype_rp,stream=istream)
@@ -1133,9 +1211,11 @@ module mod_solver_gpu
 #endif
         end if
 #if !defined(_USE_DIEZDECOMP)
-        !$acc end host_data
+  !$omp end target data
+  !$acc end   host_data
 #endif
-        !$acc parallel loop collapse(3) default(present) async(1)
+  !$acc parallel     loop collapse(3) default(present) async(1)
+  !$omp target teams loop collapse(3)
         do k=1,n(3)
           do j=1,n(2)
             do i=1,n(1)
@@ -1145,16 +1225,19 @@ module mod_solver_gpu
         end do
       case(2)
 #if !defined(_USE_DIEZDECOMP)
-        !$acc host_data use_device(pz,py,work)
+        !$acc   host_data use_device(     pz,py,work)
+        !$omp target data use_device_addr(pz,py,work)
 #endif
         istat = cudecompTransposeZtoY(ch,gd,pz,py,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-        !$acc end host_data
+        !$omp end target data
+        !$acc end   host_data
 #endif
         !
         ! transpose py -> p to default layout
         !
-        !$acc parallel loop collapse(3) default(present) async(1)
+        !$acc parallel     loop collapse(3) default(present) async(1)
+        !$omp target teams loop collapse(3)
         do k=1,n(3)
           do j=1,n(2)
             do i=1,n(1)
@@ -1199,7 +1282,8 @@ module mod_solver_gpu
     pz(1:n(1),1:n(2),1:n(3)) => solver_buf_0(1:product(n(:)))
     pfft_tmp_y(1:n_y(1),1:n_y(2),1:n_y(3)) => work(1:product(n_y(:)))
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,n(3)
       do j=1,n(2)
         do i=1,n(1)
@@ -1211,14 +1295,17 @@ module mod_solver_gpu
     if(is_fft(2)) then
       call fft_gpu('F',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(1,2),py,pfft_tmp_y)
     else
-      !$acc host_data use_device(eigvecy_fwd,py_1,py_2)
+      !$acc   host_data use_device(     eigvecy_fwd,py_1,py_2)
+      !$omp target data use_device_addr(eigvecy_fwd,py_1,py_2)
       istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
                    eigvecy_fwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
     if(is_fft(2)) then
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -1227,7 +1314,8 @@ module mod_solver_gpu
         end do
       end do
     else
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -1241,7 +1329,8 @@ module mod_solver_gpu
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
     call gaussel_yz_gpu(n(1),n(2),n(3)-q,0,a,b,c,is_periodic_z,normfft,pz,work,pz_aux_1,lambday)
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,n(3)
       do j=1,n(2)
         do i=1,n(1)
@@ -1253,14 +1342,17 @@ module mod_solver_gpu
     if(is_fft(2)) then
       call fft_gpu('B',bc(0,2)//bc(1,2),c_or_f(2),ng(2),n_y,arrplan(2,2),py,pfft_tmp_y)
     else
-      !$acc host_data use_device(eigvecy_bwd,py_1,py_2)
+      !$acc   host_data use_device(     eigvecy_bwd,py_1,py_2)
+      !$omp target data use_device_addr(eigvecy_bwd,py_1,py_2)
       istat = gemm(gh,op_n,op_n,ng(2),n_y(2)*n_y(3),ng(2),1._rp, &
                    eigvecy_bwd,ng(2),py_1,ng(2),0._rp,py_2,ng(2))
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
     end if
     !
     if(is_fft(2)) then
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -1269,7 +1361,8 @@ module mod_solver_gpu
         end do
       end do
     else
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
@@ -1294,7 +1387,8 @@ module mod_solver_gpu
     !
     nn = n
     if(is_periodic) nn = nn-1
-    !$acc parallel loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+    !$omp target teams loop             collapse(2)                  private(lambda,z)
     do j=1,ny
       do i=1,nx
         lambda = lambday(j)
@@ -1314,7 +1408,8 @@ module mod_solver_gpu
       end do
     end do
     if(is_periodic) then
-      !$acc parallel loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) private(lambda,z) async(1)
+      !$omp target teams loop             collapse(2)                  private(lambda,z)
       do j=1,ny
         do i=1,nx
           lambda = lambday(j)
@@ -1379,7 +1474,8 @@ module mod_solver_gpu
                cc_y(nx,ny,2), &
                pp_y(nx,ny,2), &
                pp_z(nr_z(1),nr_z(2),nr_z(3)))
-      !$acc enter data create(aa_y,bb_y,cc_y,pp_y,pp_z) async(1)
+      !$acc        enter data create(   aa_y,bb_y,cc_y,pp_y,pp_z) async(1)
+      !$omp target enter data map(alloc:aa_y,bb_y,cc_y,pp_y,pp_z)
     end if
     nn   = nr_z(3)
     ny_r = nr_z(2)
@@ -1392,7 +1488,8 @@ module mod_solver_gpu
       !
       ! update pre-computed coefficients
       !
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny
         do i=1,nx
           do k=1,n
@@ -1403,7 +1500,8 @@ module mod_solver_gpu
         end do
       end do
       !
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny
         do i=1,nx
           !$acc loop seq
@@ -1413,7 +1511,8 @@ module mod_solver_gpu
           end do
         end do
       end do
-      !$acc parallel loop collapse(2) default(present) async(1)
+      !$acc parallel     loop collapse(2) default(present) async(1)
+      !$omp target teams loop collapse(2)
       do j=1,ny
         do i=1,nx
           !$acc loop seq
@@ -1424,7 +1523,8 @@ module mod_solver_gpu
         end do
       end do
       if(n > 1) then
-        !$acc parallel loop gang vector collapse(2) default(present) async(1)
+        !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+        !$omp target teams loop             collapse(2)
         do j=1,ny
           do i=1,nx
             bb(i,j,1) = bb(i,j,1) - cc(i,j,1)/bb(i,j,2)*aa(i,j,2)
@@ -1433,7 +1533,8 @@ module mod_solver_gpu
         end do
       end if
       !
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny
         do i=1,nx
           aa_y(i,j,1) = aa(i,j,1)
@@ -1446,17 +1547,20 @@ module mod_solver_gpu
       end do
       !
 #if !defined(_USE_DIEZDECOMP)
-      !$acc host_data use_device(aa_y,bb_y,cc_y,aa_z,bb_z,cc_z,work)
+      !$acc   host_data use_device(     aa_y,bb_y,cc_y,aa_z,bb_z,cc_z,work)
+      !$omp target data use_device_addr(aa_y,bb_y,cc_y,aa_z,bb_z,cc_z,work)
 #endif
       istat = cudecompTransposeYtoZ(ch,gd_dtdma,aa_y,aa_z,work,dtype_rp,stream=istream)
       istat = cudecompTransposeYtoZ(ch,gd_dtdma,bb_y,bb_z,work,dtype_rp,stream=istream)
       istat = cudecompTransposeYtoZ(ch,gd_dtdma,cc_y,cc_z,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-      !$acc end host_data
+      !$omp end target data
+      !$acc end   host_data
 #endif
       !
       if(is_periodic) then
-        !$acc parallel loop collapse(3) default(present) async(1)
+        !$acc parallel     loop collapse(3) default(present) async(1)
+        !$omp target teams loop collapse(3)
         do k=1,nn+1
           do j=1,ny_r
             do i=1,nx_r
@@ -1464,7 +1568,8 @@ module mod_solver_gpu
             end do
           end do
         end do
-        !$acc parallel loop gang vector collapse(2) default(present) async(1)
+        !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+        !$omp target teams loop             collapse(2)
         do j=1,ny_r
           do i=1,nx_r
             pp_z_2(i,j,1 ) = -aa_z(i,j,1 )
@@ -1474,7 +1579,8 @@ module mod_solver_gpu
         end do
       end if
       !
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny_r
         do i=1,nx_r
           cc_z(i,j,1) = cc_z(i,j,1)/bb_z(i,j,1)
@@ -1484,7 +1590,8 @@ module mod_solver_gpu
           end do
         end do
       end do
-      !$acc parallel loop collapse(3) default(present) async(1)
+      !$acc parallel     loop collapse(3) default(present) async(1)
+      !$omp target teams loop collapse(3)
       do k=1,n
         do j=1,ny
           do i=1,nx
@@ -1494,7 +1601,8 @@ module mod_solver_gpu
       end do
       !
       if(is_periodic) then
-        !$acc parallel loop gang vector collapse(2) default(present) async(1)
+        !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+        !$omp target teams loop             collapse(2)
         do j=1,ny_r
           do i=1,nx_r
             !$acc loop seq
@@ -1513,7 +1621,8 @@ module mod_solver_gpu
     !
     ! solve distributed TDMA problem
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         p(i,j,1) = p(i,j,1)*norm
@@ -1529,7 +1638,8 @@ module mod_solver_gpu
       end do
     end do
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         pp_y(i,j,1) = p(i,j,1)
@@ -1538,14 +1648,17 @@ module mod_solver_gpu
     end do
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_y,pp_z,work)
+    !$acc   host_data use_device(     pp_y,pp_z,work)
+    !$omp target data use_device_addr(pp_y,pp_z,work)
 #endif
     istat = cudecompTransposeYtoZ(ch,gd_dtdma,pp_y,pp_z,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny_r
       do i=1,nx_r
         pp_z(i,j,1) = pp_z(i,j,1)/bb_z(i,j,1)
@@ -1562,7 +1675,8 @@ module mod_solver_gpu
     end do
     !
     if(is_periodic) then
-      !$acc parallel loop gang vector collapse(2) default(present) async(1)
+      !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+      !$omp target teams loop             collapse(2)
       do j=1,ny_r
         do i=1,nx_r
           pp_z(i,j,nn+1) = (pp_z(i,j,nn+1)*norm - cc_z(i,j,nn+1)*pp_z(  i,j,1) - aa_z(i,j,nn+1)*pp_z(  i,j,nn))/ &
@@ -1576,21 +1690,25 @@ module mod_solver_gpu
     end if
     !
 #if !defined(_USE_DIEZDECOMP)
-    !$acc host_data use_device(pp_z,pp_y,work)
+    !$acc   host_data use_device(     pp_z,pp_y,work)
+    !$omp target data use_device_addr(pp_z,pp_y,work)
 #endif
     istat = cudecompTransposeZtoY(ch,gd_dtdma,pp_z,pp_y,work,dtype_rp,stream=istream)
 #if !defined(_USE_DIEZDECOMP)
-    !$acc end host_data
+    !$omp end target data
+    !$acc end   host_data
 #endif
     !
-    !$acc parallel loop gang vector collapse(2) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(2) default(present) async(1)
+    !$omp target teams loop             collapse(2)
     do j=1,ny
       do i=1,nx
         p(i,j,1) = pp_y(i,j,1)
         p(i,j,n) = pp_y(i,j,2)
       end do
     end do
-    !$acc parallel loop gang vector collapse(3) default(present) async(1)
+    !$acc parallel     loop gang vector collapse(3) default(present) async(1)
+    !$omp target teams loop             collapse(3)
     do k=2,n-1
       do j=1,ny
         do i=1,nx

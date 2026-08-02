@@ -9,7 +9,7 @@ module mod_solve_helmholtz
   use mod_types
   use mod_bound, only: updt_rhs_b
   use mod_param, only: impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz
-#if !defined(_OPENACC)
+#if !(defined(_OPENACC) || defined(_OPENMP))
   use mod_solver    , only: solver
   use mod_solver    , only: solver_gaussel_z
   use mod_solver    , only: solver_gaussel_yz
@@ -35,7 +35,7 @@ module mod_solve_helmholtz
     !
     integer ,    intent(in   ), dimension(3)                :: n,ng,hi
     logical ,    intent(in   ), dimension(2)                :: is_fft
-#if !defined(_OPENACC) || defined(_USE_HIP)
+#if !(defined(_OPENACC) || defined(_OPENMP)) || defined(_USE_HIP)
     type(C_PTR), intent(in   ), dimension(2,2),    optional :: arrplan
 #else
     integer    , intent(in   ), dimension(2,2),    optional :: arrplan
@@ -61,12 +61,13 @@ module mod_solve_helmholtz
     if(is_first) then ! leverage save attribute to allocate these arrays on the device only once
       is_first = .false.
       allocate(bb,mold=b)
-      !$acc enter data create(bb) async(1)
+      !$acc        enter data create(   bb) async(1)
+      !$omp target enter data map(alloc:bb)
     end if
     !
     alphai = alpha**(-1)
-    !$acc parallel loop default(present) async(1)
-    !$OMP PARALLEL DO   DEFAULT(shared)
+    !$acc parallel     loop default(present) async(1)
+    !$omp target teams loop
     do k=1,size(b)
       bb(k) = b(k) + alphai
     end do

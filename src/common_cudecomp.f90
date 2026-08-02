@@ -5,7 +5,7 @@
 !
 ! -
 module mod_common_cudecomp
-#if defined(_OPENACC)
+#if defined(_OPENACC) || defined(_OPENMP)
   use, intrinsic :: iso_c_binding, only: c_ptr
   use mod_types
   !@cuf use cudafor
@@ -19,7 +19,13 @@ module mod_common_cudecomp
 #else
   use hipfort_hipblas
 #endif
-  use openacc
+#if   defined(_OPENACC)
+  use openacc, only: cuda_stream_kind => acc_handle_kind
+#elif defined(_OPENMP) || !defined(_USE_HIP)
+  use cudafor, only: cuda_stream_kind
+#elif defined(_USE_HIP)
+  use, intrinsic :: iso_fortran_env, only: cuda_stream_kind => int32
+#endif
   use mod_param, only: cudecomp_is_t_in_place
   implicit none
   public
@@ -41,7 +47,7 @@ module mod_common_cudecomp
   real(rp), target, allocatable, dimension(:) :: solver_buf_0,solver_buf_1
   real(rp), allocatable, dimension(:,:,:) :: pz_aux_1,pz_aux_2
   real(rp), target, allocatable, dimension(:) :: gemm_buf_x,gemm_buf_y
-  integer(acc_handle_kind) :: istream_acc_queue_1,istream_acc_queue_1_comm_lib
+  integer(cuda_stream_kind) :: istream_acc_queue_1,istream_acc_queue_1_comm_lib
 #if !defined(_USE_HIP)
   type(cublasHandle) :: gemm_handle
 #else

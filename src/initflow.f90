@@ -385,7 +385,6 @@ module mod_initflow
   integer :: i,j,k
   vol = product(l(:))
   meanold = 0.
-  !$OMP PARALLEL DO COLLAPSE(3) DEFAULT(shared) REDUCTION(+:meanold)
   do k=1,n(3)
     do j=1,n(2)
       do i=1,n(1)
@@ -397,9 +396,7 @@ module mod_initflow
   call MPI_ALLREDUCE(MPI_IN_PLACE,meanold,1,MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
   !
   if(abs(meanold) > epsilon(0._rp)) then
-    !$OMP PARALLEL WORKSHARE
     p(:,:,:) = p(:,:,:)/meanold*mean
-    !$OMP END PARALLEL WORKSHARE
   end if
   end subroutine set_mean
   !

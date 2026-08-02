@@ -28,8 +28,8 @@ module mod_fillps
     real(rp), intent(out), dimension(0:,0:,0:) :: p
     integer :: i,j,k
     !
-    !$acc parallel loop collapse(3) default(present) async(1)
-    !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
+    !$acc parallel     loop collapse(3) default(present) async(1)
+    !$omp target teams loop collapse(3)
     do k=1,n(3)
       do j=1,n(2)
         do i=1,n(1)

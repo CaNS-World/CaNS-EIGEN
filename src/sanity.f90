@@ -218,6 +218,7 @@ module mod_sanity
       passed = passed.and.passed_loc
     end if
 #if defined(_OPENACC)
+    passed_loc = .true.
     do idir=1,2
       bc01p = cbcpre(0,idir)//cbcpre(1,idir)
       passed_loc = passed_loc.and..not.( (bc01p == 'DN').or. &
@@ -225,6 +226,7 @@ module mod_sanity
     end do
     if(myid == 0.and.(.not.passed_loc)) &
       print*, 'ERROR: pressure BCs "ND" or "DN" along x or y not implemented on GPUs yet.'
+    passed = passed.and.passed_loc
 #endif
   end subroutine chk_bc
   !

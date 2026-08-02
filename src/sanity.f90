@@ -18,7 +18,7 @@ module mod_sanity
   use mod_initflow  , only: add_noise
   use mod_initmpi   , only: initmpi
   use mod_initsolver, only: initsolver
-  use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_pcr_tdma,small
+  use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
   use mod_param     , only: is_poisson_fft_param => is_poisson_fft
 #if !defined(_OPENACC)
   use mod_solver    , only: solver
@@ -49,15 +49,15 @@ module mod_sanity
     call chk_stop_type(stop_type,passed);          if(.not.passed) call abortit
     call chk_bc(cbcvel,cbcpre,bcvel,bcpre,passed); if(.not.passed) call abortit
     call chk_forcing(cbcpre,is_forced,passed);     if(.not.passed) call abortit
-    if(impdiff_mode == impdiff_z .and. .not.(ipencil_axis == 3) .and. .not.is_poisson_pcr_tdma) then
+    if(impdiff_mode == impdiff_z .and. .not.(ipencil_axis == 3) .and. .not.is_poisson_dtdma) then
       if(dims(2) > 1) then
         if(myid == 0)  print*, 'Warning: a run with implicit Z diffusion (`impdiff_mode = 1`) is much more efficient &
                                        & when the flow is not decomposed along the Z direction.'
       end if
     end if
     if(impdiff_mode == impdiff_yz) then
-      if(is_poisson_pcr_tdma) then
-        if(myid == 0) print*, 'ERROR: `impdiff_mode = 2` does not support `is_poisson_pcr_tdma = T`.'; call abortit
+      if(is_poisson_dtdma) then
+        if(myid == 0) print*, 'ERROR: `impdiff_mode = 2` does not support `is_poisson_dtdma = T`.'; call abortit
       end if
       if(dims(2) /= 1 .or. .not.any(ipencil_axis == [2,3])) then
         if(myid == 0) print*, 'ERROR: `impdiff_mode = 2` requires `ipencil_axis = 2` or `3` and `dims(2) = 1`.'
@@ -67,8 +67,8 @@ module mod_sanity
         if(myid == 0) print*, 'Warning: `impdiff_mode = 2` may be more efficient with `ipencil_axis = 2`.'
       end if
     end if
-    if(is_poisson_pcr_tdma .and. (ipencil_axis == 3)) then
-      if(myid == 0)  print*, 'ERROR: `is_poisson_pcr_tdma = T` requires X/Y-aligned pencils.'; call abortit
+    if(is_poisson_dtdma .and. (ipencil_axis == 3)) then
+      if(myid == 0)  print*, 'ERROR: `is_poisson_dtdma = T` requires X/Y-aligned pencils.'; call abortit
     end if
   end subroutine test_sanity_input
   !

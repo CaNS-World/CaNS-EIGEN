@@ -101,7 +101,7 @@ integer, protected :: impdiff_mode = impdiff_explicit
 logical, protected :: is_poisson_dtdma = .false., &
                       is_poisson_fft(2) = [.true.,.true.], &
                       is_fast_mom_kernels = .true., &
-                      is_gridpoint_natural_channel = .false.
+                      is_gridpoint_natural_channel(3) = .false.
 !
 ! i/o backend parameters
 !

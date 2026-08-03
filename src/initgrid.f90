@@ -5,13 +5,13 @@
 !
 ! -
 module mod_initgrid
-  use mod_param, only:pi,is_gridpoint_natural_channel
+  use mod_param, only:pi
   use mod_types
   implicit none
   private
   public initgrid,save_grid
   contains
-  subroutine initgrid(gtype,n,gr,lz,dzc,dzf,zc,zf,is_periodic)
+  subroutine initgrid(gtype,n,gr,lz,dzc,dzf,zc,zf,is_periodic,is_gridpoint_natural)
     !
     ! initializes the non-uniform grid along z
     !
@@ -23,7 +23,7 @@ module mod_initgrid
     integer , intent(in ) :: gtype,n
     real(rp), intent(in ) :: gr,lz
     real(rp), intent(out), dimension(0:n+1) :: dzc,dzf,zc,zf
-    logical , intent(in ) :: is_periodic
+    logical , intent(in ) :: is_periodic,is_gridpoint_natural
     real(rp) :: z0
     integer :: k
     procedure (), pointer :: gridpoint => null()
@@ -43,7 +43,7 @@ module mod_initgrid
     ! step 1) determine coordinates of cell faces zf
     !
     zf(0) = 0.
-    if(.not.is_gridpoint_natural_channel) then
+    if(.not.is_gridpoint_natural) then
       do k=1,n
         z0  = (k-0.)/(1.*n)
         call gridpoint(gr,z0,zf(k))
@@ -55,7 +55,7 @@ module mod_initgrid
     end if
     zf(1:n) = zf(1:n)*lz
     !
-    if(abs(gr) < epsilon(1._rp)) then
+    if(abs(gr) < epsilon(1._rp) .and. .not.is_gridpoint_natural) then
       !
       ! for uniform grids, set constant spacing to avoid round-off errors
       !

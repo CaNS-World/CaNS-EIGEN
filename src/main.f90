@@ -46,6 +46,7 @@ program cans
   use mod_output         , only: out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d
   use mod_param          , only: ng,l, &
                                  gtype,gr, &
+                                 is_gridpoint_natural_channel, &
                                  cfl,dtmax,dt_f, &
                                  visc,alpha_max, &
                                  inivel,is_wallturb, &
@@ -267,9 +268,9 @@ program cans
   if(myid == 0) print*, '*******************************'
   if(myid == 0) print*, ''
   is_periodic(:) = cbcpre(0,:)//cbcpre(1,:) == 'PP'
-  call initgrid(gtype(1),ng(1),gr(1),l(1),dxc_g,dxf_g,xc_g,xf_g,is_periodic(1))
-  call initgrid(gtype(2),ng(2),gr(2),l(2),dyc_g,dyf_g,yc_g,yf_g,is_periodic(2))
-  call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3))
+  call initgrid(gtype(1),ng(1),gr(1),l(1),dxc_g,dxf_g,xc_g,xf_g,is_periodic(1),is_gridpoint_natural_channel(1))
+  call initgrid(gtype(2),ng(2),gr(2),l(2),dyc_g,dyf_g,yc_g,yf_g,is_periodic(2),is_gridpoint_natural_channel(2))
+  call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3),is_gridpoint_natural_channel(3))
   if(myid == 0) then
     open(newunit=iunit,file=trim(datadir)//'geometry.out',status='replace')
     write(iunit,*) ng(1),ng(2),ng(3)

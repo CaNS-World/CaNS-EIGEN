@@ -150,8 +150,7 @@ module mod_post
     !$omp target enter data map(alloc:vox,voy,voz)
     call vorticity(n,dxci,dyci,dzci,ux,uy,uz,vox,voy,voz)
     !
-    ! the invariant Wij*Wij = |vorticity|^2/2.
-    ! interpolate squared edge values to cells.
+    ! Wij*Wij = |vorticity|^2/2; interpolate squared edge values to cells
     !
     !$acc parallel     loop collapse(3) default(present)
     !$omp target teams loop collapse(3)

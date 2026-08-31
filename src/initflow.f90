@@ -13,13 +13,14 @@ module mod_initflow
   private
   public initflow,initscal,add_noise
   contains
-  subroutine initflow(inivel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+  subroutine initflow(inivel,cbcvel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
                       visc,is_forced,velf,bforce,is_wallturb,u,v,w,p)
     !
     ! computes initial conditions for the velocity field
     !
     implicit none
     character(len=*), intent(in) :: inivel
+    character(len=1), intent(in), dimension(0:1,3,3) :: cbcvel
     real(rp), intent(in), dimension(0:1,3,3) :: bcvel
     integer , intent(in), dimension(3) :: ng,lo
     real(rp), intent(in), dimension(3) :: l
@@ -29,10 +30,9 @@ module mod_initflow
     real(rp), intent(in), dimension(3) :: velf,bforce
     logical , intent(in)               :: is_wallturb
     real(rp), dimension(0:,0:,0:), intent(out) :: u,v,w,p
-    real(rp), allocatable, dimension(:) :: u1d
-    !real(rp), allocatable, dimension(:,:) :: u2d
+    real(rp), allocatable, dimension(:) :: u1d_z,u1d_y
     integer :: i,j,k
-    logical :: is_noise,is_mean,is_pair
+    logical :: is_noise,is_mean,is_pair,is_duct
     real(rp) :: xxc,yyc,zzc,xxf,yyf,zzf
     real(rp), allocatable, dimension(:) :: zc2
     real(rp) :: uref,lref
@@ -40,7 +40,10 @@ module mod_initflow
     integer, dimension(3) :: n
     !
     n(:) = shape(p) - 2*1
-    allocate(u1d(n(3)))
+    allocate(u1d_z(n(3)),u1d_y(n(2)))
+    u1d_y(:) = 1.
+    is_duct = any(trim(inivel) == ['poi','log']) .and. &
+              cbcvel(0,2,1)//cbcvel(1,2,1) == 'DD'
     is_noise = .false.
     is_mean  = .false.
     is_pair  = .false.
@@ -49,15 +52,16 @@ module mod_initflow
     if(is_forced(1)) ubulk = velf(1)
     select case(trim(inivel))
     case('cou')
-      call couette(   n(3),zc/l(3),1._rp,u1d)
-      u1d(:) = u1d(:) + 0.5 ! from 1 to 0
-      u1d(:) = bcvel(0,3,1)*(u1d(:)) + bcvel(1,3,1)*(1.-u1d(:))
+      call couette(   n(3),zc/l(3),1._rp,u1d_z)
+      u1d_z(:) = u1d_z(:) + 0.5 ! from 1 to 0
+      u1d_z(:) = bcvel(0,3,1)*(u1d_z(:)) + bcvel(1,3,1)*(1.-u1d_z(:))
       uref = abs(bcvel(1,3,1)-bcvel(0,3,1))
     case('poi')
-      call poiseuille(n(3),zc/l(3),ubulk,u1d)
+      call poiseuille(n(3),zc/l(3),ubulk,u1d_z)
+      if(is_duct) call poiseuille(n(2),yc/l(2),1._rp,u1d_y)
       is_mean = .true.
     case('tbl')
-      call temporal_bl(n(3),zc,1._rp,visc,uref,u1d)
+      call temporal_bl(n(3),zc,1._rp,visc,uref,u1d_z)
       is_noise = .true.
     case('iop') ! reversed 'poi'
       !
@@ -65,39 +69,43 @@ module mod_initflow
       ! walls have negative velocity equal to `ubulk` in the laboratory frame
       !
       ubulk = 0.5*abs(bcvel(0,3,1)+bcvel(1,3,1))
-      call poiseuille(n(3),zc/l(3),ubulk,u1d)
-      u1d(:) = u1d(:) - ubulk
+      call poiseuille(n(3),zc/l(3),ubulk,u1d_z)
+      u1d_z(:) = u1d_z(:) - ubulk
       is_mean = .true.
     case('zer')
-      u1d(:) = 0.
+      u1d_z(:) = 0.
     case('uni')
-      u1d(:) = uref
+      u1d_z(:) = uref
     case('log')
       reb = ubulk*l(3)/visc
-      call log_profile(n(3),zc/l(3),reb,u1d)
+      call log_profile(n(3),zc/l(3),reb,u1d_z)
+      if(is_duct) then
+        reb = ubulk*l(2)/visc
+        call log_profile(n(2),yc/l(2),reb,u1d_y)
+      end if
       is_noise = .true.
       is_mean = .true.
     case('hcl')
-      deallocate(u1d)
-      allocate(u1d(2*n(3)))
+      deallocate(u1d_z)
+      allocate(u1d_z(2*n(3)))
       allocate(zc2(0:2*n(3)+1))
       zc2(1     :  n(3)) =          zc(1   :n(3): 1)
       zc2(n(3)+1:2*n(3)) = 2*l(3) - zc(n(3):1   :-1)
       zc2(0)        = -zc(0)
       zc2(2*n(3)+1) = 2*l(3) + zc(0)
       reb = ubulk*(2*l(3))/visc
-      call log_profile(2*n(3),zc2/(2*l(3)),reb,u1d)
+      call log_profile(2*n(3),zc2/(2*l(3)),reb,u1d_z)
       is_noise = .true.
       is_mean = .true.
     case('hcp')
-      deallocate(u1d)
-      allocate(u1d(2*n(3)))
+      deallocate(u1d_z)
+      allocate(u1d_z(2*n(3)))
       allocate(zc2(0:2*n(3)+1))
       zc2(1     :  n(3)) =          zc(1   :n(3): 1)
       zc2(n(3)+1:2*n(3)) = 2*l(3) - zc(n(3):1   :-1)
       zc2(0)        = -zc(0)
       zc2(2*n(3)+1) = 2*l(3) + zc(0)
-      call poiseuille(2*n(3),zc2/(2*l(3)),ubulk,u1d)
+      call poiseuille(2*n(3),zc2/(2*l(3)),ubulk,u1d_z)
       is_mean = .true.
     case('tgv')
       do k=1,n(3)
@@ -165,16 +173,16 @@ module mod_initflow
         ubulk = (bforce(1)*lref**2/(3.*visc))
       end if
       if(trim(inivel) == 'pdc') then
-        call poiseuille(n(3),zc/l(3),ubulk,u1d)
+        call poiseuille(n(3),zc/l(3),ubulk,u1d_z)
       else
-        deallocate(u1d)
-        allocate(u1d(2*n(3)))
+        deallocate(u1d_z)
+        allocate(u1d_z(2*n(3)))
         allocate(zc2(0:2*n(3)+1))
         zc2(1     :  n(3)) =          zc(1   :n(3): 1)
         zc2(n(3)+1:2*n(3)) = 2*l(3) - zc(n(3):1   :-1)
         zc2(0)        = -zc(0)
         zc2(2*n(3)+1) = 2*l(3) + zc(0)
-        call poiseuille(2*n(3),zc2/(2*l(3)),ubulk,u1d)
+        call poiseuille(2*n(3),zc2/(2*l(3)),ubulk,u1d_z)
       end if
       is_mean = .true.
     case default
@@ -189,7 +197,7 @@ module mod_initflow
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
-            u(i,j,k) = u1d(k)
+            u(i,j,k) = u1d_y(j)*u1d_z(k)
             v(i,j,k) = 0.
             w(i,j,k) = 0.
             p(i,j,k) = 0.
@@ -229,7 +237,7 @@ module mod_initflow
             do i=1,n(1)
               xxc = (xc(i)-.5*l(1))*2./l(3)
               xxf = (xf(i)-.5*l(1))*2./l(3)
-              !u(i,j,k) = u1d(k)
+              !u(i,j,k) = u1d_z(k)
               v(i,j,k) = -1.*gxy(yyf,xxc)*dfz(zzc)*ubulk*1.5
               w(i,j,k) =  1.*fz(zzf)*dgxy(yyc,xxc)*ubulk*1.5
               p(i,j,k) = 0.
@@ -250,7 +258,7 @@ module mod_initflow
             do i=1,n(1)
               xxc = xc(i)/l(1)*2.*pi
               xxf = xf(i)/l(1)*2.*pi
-              !u(i,j,k) = u1d(k)
+              !u(i,j,k) = u1d_z(k)
               v(i,j,k) =  sin(xxc)*cos(yyf)*cos(zzc)*ubulk
               w(i,j,k) = -cos(xxc)*sin(yyc)*cos(zzf)*ubulk
               p(i,j,k) = 0.!(cos(2.*xxc)+cos(2.*yyc))*(cos(2.*zzc)+2.)/16.

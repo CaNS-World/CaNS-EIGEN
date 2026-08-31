@@ -46,6 +46,7 @@ program cans
   use mod_output         , only: out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d
   use mod_param          , only: ng,l, &
                                  gtype,gr, &
+                                 is_gridpoint_natural_channel, &
                                  cfl,dtmax,dt_f, &
                                  visc,alpha_max, &
                                  inivel,is_wallturb, &
@@ -266,9 +267,9 @@ program cans
   if(myid == 0) print*, '*******************************'
   if(myid == 0) print*, ''
   is_periodic(:) = cbcpre(0,:)//cbcpre(1,:) == 'PP'
-  call initgrid(gtype(1),ng(1),gr(1),l(1),dxc_g,dxf_g,xc_g,xf_g,is_periodic(1))
-  call initgrid(gtype(2),ng(2),gr(2),l(2),dyc_g,dyf_g,yc_g,yf_g,is_periodic(2))
-  call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3))
+  call initgrid(gtype(1),ng(1),gr(1),l(1),dxc_g,dxf_g,xc_g,xf_g,is_periodic(1),is_gridpoint_natural_channel(1))
+  call initgrid(gtype(2),ng(2),gr(2),l(2),dyc_g,dyf_g,yc_g,yf_g,is_periodic(2),is_gridpoint_natural_channel(2))
+  call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3),is_gridpoint_natural_channel(3))
   if(myid == 0) then
     open(newunit=iunit,file=trim(datadir)//'geometry.out',status='replace')
     write(iunit,*) ng(1),ng(2),ng(3)
@@ -499,7 +500,8 @@ program cans
   if(.not.restart) then
     istep = 0
     time = 0.
-    call initflow(inivel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf,visc,is_forced,velf,bforce,is_wallturb,u,v,w,p)
+    call initflow(inivel,cbcvel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+                  visc,is_forced,velf,bforce,is_wallturb,u,v,w,p)
     do iscal=1,nscal
       s => scalars(iscal)
       call initscal(s%ini,s%bc,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf,s%alpha,s%is_forced,s%scalf,s%val)
@@ -656,24 +658,24 @@ program cans
       var(3) = time
       call out0d(trim(datadir)//'time.out',3,var)
       !
-      if(any(is_forced(:)).or.any(abs(bforce(:)) > 0.)) then
+      if(any(abs(bforce(:)) > 0.).or.any(abs(dpdl(:)) > 0.)) then
         meanvelu = 0.
         meanvelv = 0.
         meanvelw = 0.
-        if(is_forced(1).or.abs(bforce(1)) > 0.) then
+        if(abs(bforce(1)) > 0..or.abs(dpdl(1)) > 0.) then
           call bulk_mean(n,l,dxc,dyf,dzf,u,meanvelu)
         end if
-        if(is_forced(2).or.abs(bforce(2)) > 0.) then
+        if(abs(bforce(2)) > 0..or.abs(dpdl(2)) > 0.) then
           call bulk_mean(n,l,dxf,dyc,dzf,v,meanvelv)
         end if
-        if(is_forced(3).or.abs(bforce(3)) > 0.) then
+        if(abs(bforce(3)) > 0..or.abs(dpdl(3)) > 0.) then
           call bulk_mean(n,l,dxf,dyf,dzc,w,meanvelw)
         end if
-        if(.not.any(is_forced(:))) dpdl(:) = -bforce(:) ! constant pressure gradient
         var(1)   = time
-        var(2:4) = dpdl(1:3)
-        var(5:7) = [meanvelu,meanvelv,meanvelw]
-        call out0d(trim(datadir)//'forcing.out',7,var)
+        var(2:4) = bforce(1:3)
+        var(5:7) = dpdl(1:3)
+        var(8:10) = [meanvelu,meanvelv,meanvelw]
+        call out0d(trim(datadir)//'forcing.out',10,var)
       end if
       !
       do iscal=1,nscal

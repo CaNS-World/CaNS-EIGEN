@@ -240,8 +240,8 @@ module mod_fft
     end if
 #if !(defined(_OPENACC) || defined(_OPENMP))
     do j=jmin,jmax
-#if defined(_SINGLE_PRECISION)
       do i=1,size(arrplan,1)
+#if defined(_SINGLE_PRECISION)
         if(c_associated(arrplan(i,j))) then
           call sfftw_destroy_plan(arrplan(i,j))
           arrplan(i,j) = C_NULL_PTR

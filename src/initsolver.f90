@@ -44,14 +44,8 @@ module mod_initsolver
     real(rp), dimension(0:ng(1)+1) :: dxc_g,dxf_g
     real(rp), dimension(0:ng(2)+1) :: dyc_g,dyf_g
     real(rp), dimension(0:ng(3)+1) :: dzc_g,dzf_g
-    integer :: q,i,j
-    real(rp), dimension(ng(1))      :: ax_g,bx_g,cx_g
-    real(rp), dimension(ng(2))      :: ay_g,by_g,cy_g
+    integer :: i,j
     real(rp), dimension(ng(3))      :: az_g,bz_g,cz_g
-    real(rp), allocatable, dimension(:,:) :: eigvecs
-    real(rp), allocatable, dimension(:) :: work
-    integer , allocatable, dimension(:) :: iwork
-    integer :: wsize,iwsize,info
     !
     dli(1) = dxfi_g(0)
     dli(2) = dyfi_g(0)
@@ -80,7 +74,7 @@ module mod_initsolver
     !       with Lambda the diagonal matrix of eigenvalues and U the matrix of eigenvectors.
     !    3. Re-scale eigenvectors with similarity transformation above, to obtain the generalized eigenvectors:
     !
-    !         Q = M^{1/2} U; Q^{-1} = M^{-1/2} U^t => T = Q Lambda Q^{-1},
+    !         Q = M^{-1/2} U; Q^{-1} = U^t M^{1/2} => T = Q Lambda Q^{-1},
     !
     !       where, in the Poisson solver:
     !         - Q^{-1} provides the forward  transforms to be applied along x/y (`eigvecx/y_fwd` below), and
@@ -90,131 +84,15 @@ module mod_initsolver
       call eigenvalues(ng(1),cbc(:,1),c_or_f(1),lambdax_g)
       lambdax_g(:) = lambdax_g(:)*dli(1)**2
     else
-      !
-      ! numerical eigendecomposition
-      !
-      q = merge(1,0,c_or_f(1) == 'f'.and.cbc(1,1) == 'D')
-      call tridmatrix(cbc(:,1),ng(1),dxci_g,dxfi_g,c_or_f(1),.true.,ax_g,bx_g,cx_g)
-      allocate(eigvecs(ng(1),ng(1)),work(1),iwork(1))
-      if(cbc(0,1)//cbc(1,1) /= 'PP') then
-        !
-        ! non-periodic BCs: simple symmetric tridiagonal matrix
-        !
-        call stedc('I',ng(1)-q,bx_g,cx_g,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,work,-1,iwork,-1,info) ! workspace size query
-        wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
-        deallocate(work,iwork)
-        allocate(work(wsize),iwork(iwsize))
-        call stedc('I',ng(1)-q,bx_g,cx_g,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,work,wsize,iwork,iwsize,info)
-        lambdax_g(:) = bx_g(:)
-      else
-        !
-        ! periodic BCs: define full cyclic symmetric tridiagonal matrix (upper diagonal)
-        !
-        eigvecs(:,:) = 0.
-        do i=1,ng(1)-q
-          eigvecs(i,  i) = bx_g(i)
-        end do
-        do i=1,ng(1)-q-1
-          eigvecs(i,i+1) = cx_g(i)
-        end do
-        eigvecs(1,ng(1)-q) = cx_g(ng(1)-q) ! == ax_g(1) cyclic BC (but note that ax_g array is not symmetrized in `tridmatrix`)
-        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax_g(1:ng(1)-q),work,-1,iwork,-1,info) ! workspace size query
-        wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
-        deallocate(work,iwork)
-        allocate(work(wsize),iwork(iwsize))
-        call syevd('V','U',ng(1)-q,eigvecs(1:ng(1)-q,1:ng(1)-q),ng(1)-q,lambdax_g(1:ng(1)-q),work,wsize,iwork,iwsize,info)
-      end if
-      !
-      ! compute generalized eigenvectors
-      !
-      select case(c_or_f(1))
-      case('c')
-        do j=1,ng(1)
-          do i=1,ng(1)
-            eigvecx_fwd(i,j) = eigvecs(j,i)*sqrt(dxf_g(j))
-            eigvecx_bwd(i,j) = sqrt(dxf_g(i))**(-1)*eigvecs(i,j)
-          end do
-        end do
-      case('f')
-        if(q == 1) then ! set trivial equation for the boundary point
-          lambdax_g(ng(1)) = 0.
-          eigvecs(ng(1),:    ) = 0.
-          eigvecs(:    ,ng(1)) = 0.
-          eigvecs(ng(1),ng(1)) = 1.
-        end if
-        do j=1,ng(1)
-          do i=1,ng(1)
-            eigvecx_fwd(i,j) = eigvecs(j,i)*sqrt(dxc_g(j))
-            eigvecx_bwd(i,j) = sqrt(dxc_g(i))**(-1)*eigvecs(i,j)
-          end do
-        end do
-      end select
-      deallocate(work,iwork,eigvecs)
+      call init_eigen_axis(ng(1),cbc(:,1),c_or_f(1),dxci_g,dxfi_g, &
+                           lambdax_g,eigvecx_fwd,eigvecx_bwd)
     end if
     if(is_poisson_fft(2)) then
       call eigenvalues(ng(2),cbc(:,2),c_or_f(2),lambday_g)
       lambday_g(:) = lambday_g(:)*dli(2)**2
     else
-      !
-      ! numerical eigendecomposition
-      !
-      q = merge(1,0,c_or_f(2) == 'f'.and.cbc(1,2) == 'D')
-      call tridmatrix(cbc(:,2),ng(2),dyci_g,dyfi_g,c_or_f(2),.true.,ay_g,by_g,cy_g)
-      allocate(eigvecs(ng(2),ng(2)),work(1),iwork(1))
-      if(cbc(0,2)//cbc(1,2) /= 'PP') then
-        !
-        ! non-periodic BCs: simple symmetric tridiagonal matrix
-        !
-        call stedc('I',ng(2)-q,by_g,cy_g,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,work,-1,iwork,-1,info) ! workspace size query
-        wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
-        deallocate(work,iwork)
-        allocate(work(wsize),iwork(iwsize))
-        call stedc('I',ng(2)-q,by_g,cy_g,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,work,wsize,iwork,iwsize,info)
-        lambday_g(:) = by_g(:)
-      else
-        !
-        ! periodic BCs: define full cyclic symmetric tridiagonal matrix (upper diagonal)
-        !
-        eigvecs(:,:) = 0.
-        do j=1,ng(2)-q
-          eigvecs(j,  j) = by_g(j)
-        end do
-        do j=1,ng(2)-q-1
-          eigvecs(j,j+1) = cy_g(j)
-        end do
-        eigvecs(1,ng(2)-q) = cy_g(ng(2)-q) ! == ay_g(1) cyclic BC (but note that ay_g array is not symmetrized in `tridmatrix`)
-        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday_g(1:ng(2)-q),work,-1,iwork,-1,info) ! workspace size query
-        wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
-        deallocate(work,iwork)
-        allocate(work(wsize),iwork(iwsize))
-        call syevd('V','U',ng(2)-q,eigvecs(1:ng(2)-q,1:ng(2)-q),ng(2)-q,lambday_g(1:ng(2)-q),work,wsize,iwork,iwsize,info)
-      end if
-      !
-      ! compute generalized eigenvectors
-      !
-      select case(c_or_f(2))
-      case('c')
-        do j=1,ng(2)
-          do i=1,ng(2)
-            eigvecy_fwd(i,j) = eigvecs(j,i)*sqrt(dyf_g(j))
-            eigvecy_bwd(i,j) = sqrt(dyf_g(i))**(-1)*eigvecs(i,j)
-          end do
-        end do
-      case('f')
-        if(q == 1) then ! set trivial equation for the boundary point
-          lambday_g(ng(2)) = 0.
-          eigvecs(ng(2),:    ) = 0.
-          eigvecs(:    ,ng(2)) = 0.
-          eigvecs(ng(2),ng(2)) = 1.
-        end if
-        do j=1,ng(2)
-          do i=1,ng(2)
-            eigvecy_fwd(i,j) = eigvecs(j,i)*sqrt(dyc_g(j))
-            eigvecy_bwd(i,j) = sqrt(dyc_g(i))**(-1)*eigvecs(i,j)
-          end do
-        end do
-      end select
-      deallocate(work,iwork,eigvecs)
+      call init_eigen_axis(ng(2),cbc(:,2),c_or_f(2),dyci_g,dyfi_g, &
+                           lambday_g,eigvecy_fwd,eigvecy_bwd)
     end if
     !
     ! add eigenvalues
@@ -255,6 +133,110 @@ module mod_initsolver
     call fftini(ng,is_poisson_fft,n_x_fft,n_y_fft,cbc(:,1:2),c_or_f(1:2),arrplan,normfft)
   end subroutine initsolver
   !
+  subroutine init_eigen_axis(n,bc,c_or_f,dci,dfi,lambda,fwd,bwd)
+    ! Diagonalize the same active operator used by the staggered FD kernels.
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    use, intrinsic :: ieee_exceptions, only: ieee_status_type,ieee_get_status,ieee_set_status, &
+                                            ieee_set_halting_mode,ieee_all
+    implicit none
+    integer, intent(in) :: n
+    character(len=1), intent(in) :: bc(0:1),c_or_f
+    real(rp), intent(in) :: dci(0:),dfi(0:)
+    real(rp), intent(out) :: lambda(n),fwd(n,n),bwd(n,n)
+    real(rp) :: a(n),b(n),c(n),mass(n),off(n),scale,tol
+    real(rp), allocatable :: vectors(:,:),work(:)
+    integer, allocatable :: iwork(:)
+    integer :: m,i,j,info,lwork,liwork,izero
+    type(ieee_status_type) :: fp_status
+    ! Nonperiodic upper faces are prescribed or reconstructed by bounduvw.
+    m = n-merge(1,0,c_or_f == 'f'.and.bc(1) /= 'P')
+    if(m < 1) error stop 'ERROR: a nonperiodic face transform needs at least two grid points.'
+    call tridmatrix(bc,n,dci,dfi,c_or_f,.false.,a,b,c)
+    if(c_or_f == 'c') then
+      mass = 1._rp/dfi(1:n)
+    else
+      mass = 1._rp/dci(1:n)
+    end if
+    if(any(mass <= 0._rp)) error stop 'ERROR: eigenproblem has nonpositive grid weights.'
+    allocate(vectors(m,m),work(1),iwork(1))
+    scale = maxval(abs(a)+abs(b)+abs(c))
+    if(bc(0)//bc(1) == 'PP') then
+      ! Accumulate, rather than overwrite: cyclic neighbors coincide at N=1/2.
+      vectors = 0.
+      do i=1,m
+        vectors(i,i) = vectors(i,i)+b(i)
+        j = modulo(i-2,m)+1
+        vectors(i,j) = vectors(i,j)+a(i)*sqrt(mass(i)/mass(j))
+        j = modulo(i,m)+1
+        vectors(i,j) = vectors(i,j)+c(i)*sqrt(mass(i)/mass(j))
+      end do
+      ! LAPACK may use nonhalting IEEE arithmetic internally (also in workspace
+      ! queries). Restore the caller's flags and traps after each library call.
+      call ieee_get_status(fp_status)
+      call ieee_set_halting_mode(ieee_all,.false.)
+      call syevd('V','U',m,vectors,m,lambda,work,-1,iwork,-1,info)
+      call ieee_set_status(fp_status)
+      call check_lapack(info,'syevd workspace query')
+      lwork = max(1,ceiling(work(1))); liwork = max(1,iwork(1))
+      deallocate(work,iwork)
+      allocate(work(lwork),iwork(liwork))
+      call ieee_set_halting_mode(ieee_all,.false.)
+      call syevd('V','U',m,vectors,m,lambda,work,lwork,iwork,liwork,info)
+      call ieee_set_status(fp_status)
+      call check_lapack(info,'syevd')
+    else
+      off = 0.
+      do i=1,m-1
+        off(i) = c(i)*sqrt(mass(i)/mass(i+1))
+      end do
+      call ieee_get_status(fp_status)
+      call ieee_set_halting_mode(ieee_all,.false.)
+      call stedc('I',m,b,off,vectors,m,work,-1,iwork,-1,info)
+      call ieee_set_status(fp_status)
+      call check_lapack(info,'stedc workspace query')
+      lwork = max(1,ceiling(work(1))); liwork = max(1,iwork(1))
+      deallocate(work,iwork)
+      allocate(work(lwork),iwork(liwork))
+      call ieee_set_halting_mode(ieee_all,.false.)
+      call stedc('I',m,b,off,vectors,m,work,lwork,iwork,liwork,info)
+      call ieee_set_status(fp_status)
+      call check_lapack(info,'stedc')
+      lambda(1:m) = b(1:m)
+    end if
+    if(.not.all(ieee_is_finite(lambda(1:m))).or..not.all(ieee_is_finite(vectors))) &
+      error stop 'ERROR: LAPACK returned a nonfinite eigendecomposition.'
+    if(bc(0)//bc(1) == 'PP'.or.bc(0)//bc(1) == 'NN') then
+      ! LAPACK sorts modes differently from FFTs; identify the null mode by value.
+      izero = minloc(abs(lambda(1:m)),dim=1)
+      tol = 64._rp*epsilon(1._rp)*max(1._rp,scale)*m
+      if(abs(lambda(izero)) > tol) error stop 'ERROR: eigenproblem lost its constant mode.'
+      lambda(izero) = 0.
+      vectors(:,izero) = sqrt(mass(1:m)/sum(mass(1:m)))
+    end if
+    fwd = 0.; bwd = 0.
+    do j=1,m
+      do i=1,m
+        fwd(i,j) = vectors(j,i)*sqrt(mass(j))
+        bwd(i,j) = vectors(i,j)/sqrt(mass(i))
+      end do
+    end do
+    if(m < n) then
+      ! Keep the allocated pencil extent; this decoupled slot is later overwritten by its BC.
+      lambda(n) = 0.
+      fwd(n,n) = 1.
+      bwd(n,n) = 1.
+    end if
+  end subroutine init_eigen_axis
+  !
+  subroutine check_lapack(info,operation)
+    integer, intent(in) :: info
+    character(len=*), intent(in) :: operation
+    if(info /= 0) then
+      print*, 'ERROR: LAPACK ',operation,' failed, INFO = ',info
+      error stop 'Eigenproblem initialization failed'
+    end if
+  end subroutine check_lapack
+  !
   subroutine eigenvalues(n,bc,c_or_f,lambda)
     use mod_param, only: pi
     implicit none
@@ -277,7 +259,7 @@ module mod_initsolver
         integer :: nh,iswap(n)
         nh = (n+1)/2
         iswap(1) = 1
-        iswap(2) = nh+(1-mod(n,2))
+        if(n > 1) iswap(2) = nh+(1-mod(n,2))
         do l=2,n-1
           if(l <= nh) then ! real eigenvalue
             iswap(2*l-1                  ) = l
@@ -294,9 +276,10 @@ module mod_initsolver
           lambda(l)   = -2.*(1.-cos((l-1  )*pi/(1.*n)))
         end do
       else if(c_or_f == 'f') then
-        do l=1,n
-          lambda(l)   = -2.*(1.-cos((l-1  )*pi/(1.*(n-1+1))))
+        do l=1,n-1 ! point at n is a dependent boundary value
+          lambda(l)   = -2.*(1.-cos((l-1  )*pi/(1.*(n-1))))
         end do
+        lambda(n) = 0.
       end if
     case('DD')
       if(     c_or_f == 'c') then
@@ -310,9 +293,16 @@ module mod_initsolver
         lambda(n) = 0.
       end if
     case('ND','DN')
-      do l=1,n
-        lambda(l)     = -2.*(1.-cos((2*l-1)*pi/(2.*n)))
-      end do
+      if(     c_or_f == 'c') then
+        do l=1,n
+          lambda(l)   = -2.*(1.-cos((2*l-1)*pi/(2.*n)))
+        end do
+      else if(c_or_f == 'f') then
+        do l=1,n-1 ! point at n is prescribed by the boundary condition
+          lambda(l)   = -2.*(1.-cos((2*l-1)*pi/(2.*n-1.)))
+        end do
+        lambda(n) = 0.
+      end if
     end select
   end subroutine eigenvalues
   !
@@ -327,6 +317,10 @@ module mod_initsolver
     integer :: k
     integer :: ibound
     real(rp), dimension(0:1) :: factor
+    if(n == 1.and.bc(0)//bc(1) == 'PP') then
+      a = 0.; b = 0.; c = 0.
+      return
+    end if
     select case(c_or_f)
     case('c')
       do k=1,n
@@ -378,7 +372,7 @@ module mod_initsolver
       end if
     case('f')
       if(bc(0) == 'N') b(1) = b(1) + factor(0)*a(1)
-      if(bc(1) == 'N') b(n) = b(n) + factor(1)*c(n)
+      if(bc(1) == 'N') b(n-1) = b(n-1) + factor(1)*c(n-1)
       if(is_symm) then ! similarity transform
         !a(1:n) = a(1:n)*sqrt(dzci(0:n-1)/dzfi(1:n))
         c(1:n) = c(1:n)*sqrt(dzci(2:n+1)/dzci(1:n)) ! include grid BCs to handle cyclic matrices

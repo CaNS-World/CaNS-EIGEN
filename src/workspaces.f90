@@ -23,7 +23,8 @@ contains
                                    istream_acc_queue_1,istream_acc_queue_1_comm_lib, &
                                    gemm_handle
     use mod_fft            , only: wsize_fft,wsize_tmp
-    use mod_param          , only: ng,cudecomp_is_t_in_place,cbcpre,ipencil => ipencil_axis,is_poisson_dtdma,is_poisson_fft, &
+    use mod_param          , only: ng,dims,cudecomp_is_t_in_place,cbcpre,cbcvel,cbcscal,nscal, &
+                                   ipencil => ipencil_axis,is_poisson_dtdma,is_poisson_fft, &
                                    is_use_diezdecomp
 #if !defined(_USE_DIEZDECOMP)
     use cudecomp
@@ -38,8 +39,9 @@ contains
     use openacc
     implicit none
     integer :: istat
-    integer(i8) :: wsize,max_wsize,elem_round
-    integer :: nh(3)
+    integer(i8) :: i,wsize,max_wsize,elem_round
+    integer :: nh(3),iscal
+    logical :: needs_cyclic_work
 #if defined(_USE_HIP)
     type(c_ptr) :: istream_hip
 #endif
@@ -51,8 +53,8 @@ contains
     ! work space for temporaries, rounded up to 256 byte boundary
     !
     elem_round = 256/f_sizeof(1._rp)
-    wsize_tmp = (max(ap_x_poi%size,ap_y_poi%size) + elem_round - 1)/elem_round*elem_round
-    wsize     = wsize_fft + wsize_tmp
+    wsize_tmp = (max(wsize_tmp,ap_x_poi%size,ap_y_poi%size) + elem_round - 1)/elem_round*elem_round
+    wsize     = max(1_i8,wsize_fft) + wsize_tmp
     max_wsize = max(max_wsize,wsize)
     istat = cudecompGetTransposeWorkspaceSize(handle,gd_poi,wsize)
     max_wsize = max(max_wsize,wsize)
@@ -87,7 +89,17 @@ contains
     wsize = max(ap_x_poi%size,ap_y_poi%size,ap_z_poi%size)
     allocate(solver_buf_0(wsize),solver_buf_1(wsize))
     !$acc enter data create(solver_buf_0,solver_buf_1)
-    if(cbcpre(0,3)//cbcpre(1,3) == 'PP') then
+    !$acc parallel loop default(present)
+    do i=1,wsize
+      solver_buf_0(i) = 0.
+      solver_buf_1(i) = 0.
+    end do
+    needs_cyclic_work = cbcpre(0,3)//cbcpre(1,3) == 'PP'
+    needs_cyclic_work = needs_cyclic_work.or.any(cbcvel(0,3,:)//cbcvel(1,3,:) == 'PP')
+    do iscal=1,nscal
+      needs_cyclic_work = needs_cyclic_work.or.(cbcscal(0,3,iscal)//cbcscal(1,3,iscal) == 'PP')
+    end do
+    if(needs_cyclic_work) then
       allocate(pz_aux_1(ap_z%shape(1),ap_z%shape(2),ap_z%shape(3)))
       !$acc enter data create(pz_aux_1)
     end if
@@ -108,7 +120,7 @@ contains
       ! allocate DTDMA transpose workspaces: a separate buffer is needed because `work` is used along with `work_dtdma`
       !
       istat = cudecompGetTransposeWorkspaceSize(handle,gd_dtdma,wsize)
-      wsize = max(wsize,(3*(ng(3)+1))) ! `work_dtdma` is also used as a buffer with this size in `gaussel_dtdma_gpu_fast_1d`
+      wsize = max(wsize,3*((ng(3)+dims(2)-1)/dims(2))*dims(2)) ! considers largest Z slab on every rank
       allocate(work_dtdma(wsize))
       !$acc enter data create(work_dtdma) if(is_use_diezdecomp)
 #if !defined(_USE_DIEZDECOMP)

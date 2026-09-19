@@ -84,15 +84,13 @@ module mod_initsolver
       call eigenvalues(ng(1),cbc(:,1),c_or_f(1),lambdax_g)
       lambdax_g(:) = lambdax_g(:)*dli(1)**2
     else
-      call init_eigen_axis(ng(1),cbc(:,1),c_or_f(1),dxci_g,dxfi_g, &
-                           lambdax_g,eigvecx_fwd,eigvecx_bwd)
+      call init_eigendecomp_axis(ng(1),dxci_g,dxfi_g,dxc_g,dxf_g,cbc(:,1),c_or_f(1),lambdax_g,eigvecx_fwd,eigvecx_bwd)
     end if
     if(is_poisson_fft(2)) then
       call eigenvalues(ng(2),cbc(:,2),c_or_f(2),lambday_g)
       lambday_g(:) = lambday_g(:)*dli(2)**2
     else
-      call init_eigen_axis(ng(2),cbc(:,2),c_or_f(2),dyci_g,dyfi_g, &
-                           lambday_g,eigvecy_fwd,eigvecy_bwd)
+      call init_eigendecomp_axis(ng(2),dyci_g,dyfi_g,dyc_g,dyf_g,cbc(:,2),c_or_f(2),lambday_g,eigvecy_fwd,eigvecy_bwd)
     end if
     !
     ! add eigenvalues
@@ -133,109 +131,104 @@ module mod_initsolver
     call fftini(ng,is_poisson_fft,n_x_fft,n_y_fft,cbc(:,1:2),c_or_f(1:2),arrplan,normfft)
   end subroutine initsolver
   !
-  subroutine init_eigen_axis(n,bc,c_or_f,dci,dfi,lambda,fwd,bwd)
-    ! Diagonalize the same active operator used by the staggered FD kernels.
+  subroutine init_eigendecomp_axis(n,dci_g,dfi_g,dc_g,df_g,cbc,c_or_f,lambda_g,eigvec_fwd,eigvec_bwd)
+    !
+    ! numerical eigendecomposition along one direction
+    !
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use, intrinsic :: ieee_exceptions, only: ieee_status_type,ieee_get_status,ieee_set_status, &
-                                            ieee_set_halting_mode,ieee_all
+                                             ieee_set_halting_mode,ieee_all
     implicit none
-    integer, intent(in) :: n
-    character(len=1), intent(in) :: bc(0:1),c_or_f
-    real(rp), intent(in) :: dci(0:),dfi(0:)
-    real(rp), intent(out) :: lambda(n),fwd(n,n),bwd(n,n)
-    real(rp) :: a(n),b(n),c(n),mass(n),off(n),scale,tol
-    real(rp), allocatable :: vectors(:,:),work(:)
-    integer, allocatable :: iwork(:)
-    integer :: m,i,j,info,lwork,liwork,izero
+    integer , intent(in ) :: n
+    real(rp), intent(in ), dimension(0:n+1) :: dci_g,dfi_g,dc_g,df_g
+    character(len=1), intent(in), dimension(0:1) :: cbc
+    character(len=1), intent(in) :: c_or_f
+    real(rp), intent(out), dimension(n) :: lambda_g
+    real(rp), intent(out), dimension(n,n) :: eigvec_fwd,eigvec_bwd
+    integer :: q,i,j
+    real(rp), dimension(n) :: a_g,b_g,c_g
+    real(rp), allocatable, dimension(:,:) :: eigvecs
+    real(rp), allocatable, dimension(:) :: work
+    integer , allocatable, dimension(:) :: iwork
+    integer :: wsize,iwsize,info
     type(ieee_status_type) :: fp_status
-    ! Nonperiodic upper faces are prescribed or reconstructed by bounduvw.
-    m = n-merge(1,0,c_or_f == 'f'.and.bc(1) /= 'P')
-    if(m < 1) error stop 'ERROR: a nonperiodic face transform needs at least two grid points.'
-    call tridmatrix(bc,n,dci,dfi,c_or_f,.false.,a,b,c)
-    if(c_or_f == 'c') then
-      mass = 1._rp/dfi(1:n)
-    else
-      mass = 1._rp/dci(1:n)
-    end if
-    if(any(mass <= 0._rp)) error stop 'ERROR: eigenproblem has nonpositive grid weights.'
-    allocate(vectors(m,m),work(1),iwork(1))
-    scale = maxval(abs(a)+abs(b)+abs(c))
-    if(bc(0)//bc(1) == 'PP') then
-      ! Accumulate, rather than overwrite: cyclic neighbors coincide at N=1/2.
-      vectors = 0.
-      do i=1,m
-        vectors(i,i) = vectors(i,i)+b(i)
-        j = modulo(i-2,m)+1
-        vectors(i,j) = vectors(i,j)+a(i)*sqrt(mass(i)/mass(j))
-        j = modulo(i,m)+1
-        vectors(i,j) = vectors(i,j)+c(i)*sqrt(mass(i)/mass(j))
-      end do
-      ! LAPACK may use nonhalting IEEE arithmetic internally (also in workspace
-      ! queries). Restore the caller's flags and traps after each library call.
-      call ieee_get_status(fp_status)
-      call ieee_set_halting_mode(ieee_all,.false.)
-      call syevd('V','U',m,vectors,m,lambda,work,-1,iwork,-1,info)
-      call ieee_set_status(fp_status)
-      call check_lapack(info,'syevd workspace query')
-      lwork = max(1,ceiling(work(1))); liwork = max(1,iwork(1))
+    !
+    q = merge(1,0,c_or_f == 'f'.and.cbc(1) /= 'P')
+    call tridmatrix(cbc,n,dci_g,dfi_g,c_or_f,.true.,a_g,b_g,c_g)
+    allocate(eigvecs(n,n),work(1),iwork(1))
+    !
+    ! preserve the caller's IEEE state while LAPACK uses nonhalting arithmetic
+    !
+    call ieee_get_status(fp_status)
+    call ieee_set_halting_mode(ieee_all,.false.)
+    if(cbc(0)//cbc(1) /= 'PP') then
+      !
+      ! non-periodic BCs: simple symmetric tridiagonal matrix
+      !
+      call stedc('I',n-q,b_g,c_g,eigvecs(1:n-q,1:n-q),n-q,work,-1,iwork,-1,info) ! workspace size query
+      if(info /= 0) error stop 'ERROR: LAPACK workspace query failed.'
+      wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
       deallocate(work,iwork)
-      allocate(work(lwork),iwork(liwork))
-      call ieee_set_halting_mode(ieee_all,.false.)
-      call syevd('V','U',m,vectors,m,lambda,work,lwork,iwork,liwork,info)
-      call ieee_set_status(fp_status)
-      call check_lapack(info,'syevd')
+      allocate(work(wsize),iwork(iwsize))
+      call stedc('I',n-q,b_g,c_g,eigvecs(1:n-q,1:n-q),n-q,work,wsize,iwork,iwsize,info)
+      lambda_g(:) = b_g(:)
     else
-      off = 0.
-      do i=1,m-1
-        off(i) = c(i)*sqrt(mass(i)/mass(i+1))
+      !
+      ! periodic BCs: define full cyclic symmetric tridiagonal matrix (upper diagonal)
+      !
+      eigvecs(:,:) = 0.
+      do i=1,n-q
+        eigvecs(i,  i) = b_g(i)
       end do
-      call ieee_get_status(fp_status)
-      call ieee_set_halting_mode(ieee_all,.false.)
-      call stedc('I',m,b,off,vectors,m,work,-1,iwork,-1,info)
-      call ieee_set_status(fp_status)
-      call check_lapack(info,'stedc workspace query')
-      lwork = max(1,ceiling(work(1))); liwork = max(1,iwork(1))
+      do i=1,n-q-1
+        eigvecs(i,i+1) = c_g(i)
+      end do
+      !
+      ! the cyclic contribution shares an entry with the regular stencil for n <= 2
+      !
+      eigvecs(1,n-q) = eigvecs(1,n-q) + c_g(n-q)
+      call syevd('V','U',n-q,eigvecs(1:n-q,1:n-q),n-q,lambda_g(1:n-q),work,-1,iwork,-1,info) ! workspace size query
+      if(info /= 0) error stop 'ERROR: LAPACK workspace query failed.'
+      wsize = int(work(1),kind(wsize)); iwsize = iwork(1)
       deallocate(work,iwork)
-      allocate(work(lwork),iwork(liwork))
-      call ieee_set_halting_mode(ieee_all,.false.)
-      call stedc('I',m,b,off,vectors,m,work,lwork,iwork,liwork,info)
-      call ieee_set_status(fp_status)
-      call check_lapack(info,'stedc')
-      lambda(1:m) = b(1:m)
+      allocate(work(wsize),iwork(iwsize))
+      call syevd('V','U',n-q,eigvecs(1:n-q,1:n-q),n-q,lambda_g(1:n-q),work,wsize,iwork,iwsize,info)
     end if
-    if(.not.all(ieee_is_finite(lambda(1:m))).or..not.all(ieee_is_finite(vectors))) &
-      error stop 'ERROR: LAPACK returned a nonfinite eigendecomposition.'
-    if(bc(0)//bc(1) == 'PP'.or.bc(0)//bc(1) == 'NN') then
-      ! LAPACK sorts modes differently from FFTs; identify the null mode by value.
-      izero = minloc(abs(lambda(1:m)),dim=1)
-      tol = 64._rp*epsilon(1._rp)*max(1._rp,scale)*m
-      if(abs(lambda(izero)) > tol) error stop 'ERROR: eigenproblem lost its constant mode.'
-      lambda(izero) = 0.
-      vectors(:,izero) = sqrt(mass(1:m)/sum(mass(1:m)))
-    end if
-    fwd = 0.; bwd = 0.
-    do j=1,m
-      do i=1,m
-        fwd(i,j) = vectors(j,i)*sqrt(mass(j))
-        bwd(i,j) = vectors(i,j)/sqrt(mass(i))
+    call ieee_set_status(fp_status)
+    if(info /= 0) error stop 'ERROR: LAPACK eigendecomposition failed.'
+    if(.not.all(ieee_is_finite(lambda_g(1:n-q)))) error stop 'ERROR: nonfinite eigenvalues.'
+    !
+    ! set the constant eigenvalue to zero, independently of the mode ordering
+    !
+    if(cbc(0)//cbc(1) == 'PP'.or.cbc(0)//cbc(1) == 'NN') &
+      lambda_g(minloc(abs(lambda_g(1:n-q)),dim=1)) = 0.
+    !
+    ! compute generalized eigenvectors
+    !
+    select case(c_or_f)
+    case('c')
+      do j=1,n
+        do i=1,n
+          eigvec_fwd(i,j) = eigvecs(j,i)*sqrt(df_g(j))
+          eigvec_bwd(i,j) = sqrt(df_g(i))**(-1)*eigvecs(i,j)
+        end do
       end do
-    end do
-    if(m < n) then
-      ! Keep the allocated pencil extent; this decoupled slot is later overwritten by its BC.
-      lambda(n) = 0.
-      fwd(n,n) = 1.
-      bwd(n,n) = 1.
-    end if
-  end subroutine init_eigen_axis
-  !
-  subroutine check_lapack(info,operation)
-    integer, intent(in) :: info
-    character(len=*), intent(in) :: operation
-    if(info /= 0) then
-      print*, 'ERROR: LAPACK ',operation,' failed, INFO = ',info
-      error stop 'Eigenproblem initialization failed'
-    end if
-  end subroutine check_lapack
+    case('f')
+      if(q == 1) then ! set trivial equation for the boundary point
+        lambda_g(n) = 0.
+        eigvecs(n,:) = 0.
+        eigvecs(:,n) = 0.
+        eigvecs(n,n) = 1.
+      end if
+      do j=1,n
+        do i=1,n
+          eigvec_fwd(i,j) = eigvecs(j,i)*sqrt(dc_g(j))
+          eigvec_bwd(i,j) = sqrt(dc_g(i))**(-1)*eigvecs(i,j)
+        end do
+      end do
+    end select
+    deallocate(work,iwork,eigvecs)
+  end subroutine init_eigendecomp_axis
   !
   subroutine eigenvalues(n,bc,c_or_f,lambda)
     use mod_param, only: pi
@@ -317,10 +310,12 @@ module mod_initsolver
     integer :: k
     integer :: ibound
     real(rp), dimension(0:1) :: factor
+    !
     if(n == 1.and.bc(0)//bc(1) == 'PP') then
-      a = 0.; b = 0.; c = 0.
+      a(:) = 0.; b(:) = 0.; c(:) = 0.
       return
     end if
+    !
     select case(c_or_f)
     case('c')
       do k=1,n

@@ -9,23 +9,23 @@ module mod_sanity
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use mpi
   use decomp_2d
-  use mod_bound     , only: boundp,bounduvw,updt_rhs_b
-  use mod_chkdiv    , only: chkdiv
-  use mod_common_mpi, only: myid,ierr
-  use mod_correc    , only: correc
-  use mod_debug     , only: chk_helmholtz
-  use mod_fft       , only: fftend
-  use mod_fillps    , only: fillps
-  use mod_initflow  , only: add_noise
-  use mod_initmpi   , only: initmpi
-  use mod_initsolver, only: initsolver
+  use mod_bound          , only: boundp,bounduvw,updt_rhs_b
+  use mod_chkdiv         , only: chkdiv
+  use mod_common_mpi     , only: myid,ierr
+  use mod_correc         , only: correc
+  use mod_debug          , only: chk_helmholtz
+  use mod_fft            , only: fftend
+  use mod_fillps         , only: fillps
+  use mod_initflow       , only: add_noise
+  use mod_initmpi        , only: initmpi
+  use mod_initsolver     , only: initsolver
   use mod_solve_helmholtz, only: solve_helmholtz
-  use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
-  use mod_param     , only: is_poisson_fft_param => is_poisson_fft
+  use mod_param          , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
+  use mod_param          , only: is_poisson_fft_param => is_poisson_fft
 #if !defined(_OPENACC)
-  use mod_solver    , only: solver
+  use mod_solver         , only: solver
 #else
-  use mod_solver_gpu, only: solver => solver_gpu
+  use mod_solver_gpu     , only: solver => solver_gpu
 #endif
   use mod_types
   implicit none
@@ -144,6 +144,7 @@ module mod_sanity
   end subroutine chk_dims
   !
   subroutine chk_bc(cbcvel,cbcpre,bcvel,bcpre,passed)
+    use mod_param, only: nscal,cbcscal
     implicit none
     character(len=1), intent(in), dimension(0:1,3,3) :: cbcvel
     character(len=1), intent(in), dimension(0:1,3  ) :: cbcpre
@@ -151,7 +152,7 @@ module mod_sanity
     real(rp)        , intent(in), dimension(0:1,3  ) :: bcpre
     logical         , intent(out) :: passed
     character(len=2) :: bc01v,bc01p
-    integer :: ivel,idir
+    integer :: ivel,idir,iscal
     logical :: passed_loc
     passed = .true.
     !
@@ -181,6 +182,21 @@ module mod_sanity
                                     (bc01p == 'DD') )
     end do
     if(myid == 0.and.(.not.passed_loc)) print*, 'ERROR: pressure BCs not valid.'
+    passed = passed.and.passed_loc
+    !
+    ! check that all variables have the same periodic directions
+    !
+    passed_loc = .true.
+    do idir=1,3
+      do ivel=1,3
+        passed_loc = passed_loc.and.all((cbcvel(:,idir,ivel) == 'P').eqv.(cbcpre(:,idir) == 'P'))
+      end do
+      do iscal=1,nscal
+        passed_loc = passed_loc.and.all((cbcscal(:,idir,iscal) == 'P').eqv.(cbcpre(:,idir) == 'P'))
+      end do
+    end do
+    if(myid == 0.and.(.not.passed_loc)) &
+      print*, 'ERROR: velocity and scalar periodic BCs must match pressure BCs in every direction.'
     passed = passed.and.passed_loc
     !
     passed_loc = .true.
@@ -218,8 +234,6 @@ module mod_sanity
       passed = passed.and.passed_loc
     end if
     block
-      use mod_param, only: nscal,cbcscal
-      integer :: iscal
       character(len=2) :: pair
       passed_loc = .true.
       do iscal=1,nscal
@@ -289,7 +303,7 @@ module mod_sanity
     character(len=1) :: field_bc(0:1,3),center(3)
     real(rp) :: field_values(0:1,3)
     logical :: implicit_dir(3)
-    integer :: component
+    integer :: icomponent
     real(rp) :: divtot,divmax,restot,resmax
     integer :: i,j,k
     logical :: passed,passed_loc
@@ -315,7 +329,7 @@ module mod_sanity
     v(:,:,:) = 0.
     w(:,:,:) = 0.
     p(:,:,:) = 0.
-    phi = 0.
+    phi(:,:,:) = 0.
     call add_noise(ng,lo,123,.5_rp,u(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,456,.5_rp,v(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,789,.5_rp,w(1:n(1),1:n(2),1:n(3)))
@@ -354,22 +368,24 @@ module mod_sanity
     print*, 'ERROR: Pressure correction: Divergence is too large, with maximum = ', divmax
     passed = passed.and.passed_loc
     call fftend(arrplan)
-    implicit_dir = [impdiff_mode == impdiff_xyz, &
-                    impdiff_mode == impdiff_yz.or.impdiff_mode == impdiff_xyz,impdiff_mode /= 0]
+    !
+    implicit_dir = [ impdiff_mode == impdiff_xyz, &
+                    (impdiff_mode == impdiff_yz).or.(impdiff_mode == impdiff_xyz), &
+                     impdiff_mode /= 0 ]
     if(impdiff_mode /= 0) then
       alpha = -acos(-1._rp)
       alphai = 1._rp/alpha
-      do component=1,3+nscal
+      do icomponent=1,3+nscal
         center = 'c'
-        if(component <= 3) then
-          center(component) = 'f'
-          field_bc = cbcvel(:,:,component)
-          field_values = bcvel(:,:,component)
+        if(icomponent <= 3) then
+          center(icomponent) = 'f'
+          field_bc     = cbcvel(:,:,icomponent)
+          field_values =  bcvel(:,:,icomponent)
         else
-          field_bc = cbcscal(:,:,component-3)
-          field_values = bcscal(:,:,component-3)
+          field_bc     = cbcscal(:,:,icomponent-3)
+          field_values =  bcscal(:,:,icomponent-3)
         end if
-        select case(component)
+        select case(icomponent)
         case(1)
           field => u
         case(2)
@@ -379,26 +395,26 @@ module mod_sanity
         case default
           field => phi
         end select
-        field = 0.
-        call add_noise(ng,lo,123*component,.5_rp,field(1:n(1),1:n(2),1:n(3)))
+        field(:,:,:) = 0.
+        call add_noise(ng,lo,123*icomponent,.5_rp,field(1:n(1),1:n(2),1:n(3)))
         !$acc update device(field)
         call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                         field_bc,field_values,lambdax_g,lambday_g,lambdaxy, &
                         eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,center,a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
         !$acc update device(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
         if(impdiff_mode /= impdiff_xyz) call fftend(arrplan,1)
-        if(impdiff_mode == impdiff_z) call fftend(arrplan,2)
+        if(impdiff_mode == impdiff_z  ) call fftend(arrplan,2)
 #if defined(_OPENACC)
         call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
-        if(component <= 3) then
+        if(icomponent <= 3) then
           call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
           call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
         end if
         !$acc wait
         !$acc parallel loop collapse(3) default(present)
-        !$OMP parallel do collapse(3) default(shared)
+        !$OMP parallel do   collapse(3) default(shared)
         do k=0,n(3)+1
           do j=0,n(2)+1
             do i=0,n(1)+1
@@ -407,11 +423,11 @@ module mod_sanity
           end do
         end do
         call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
-                            eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
-                            a,b,c,rhsbx,rhsby,rhsbz,is_bound,field_bc,center,field)
+                             eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                             a,b,c,rhsbx,rhsby,rhsbz,is_bound,field_bc,center,field)
         !$acc wait
         call fftend(arrplan)
-        if(component <= 3) then
+        if(icomponent <= 3) then
           call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
           call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
@@ -429,7 +445,7 @@ module mod_sanity
         if(implicit_dir(2)) op_norm = op_norm+4._rp*maxval(dyci_g)*maxval(dyfi_g)
         if(implicit_dir(3)) op_norm = op_norm+4._rp*maxval(dzci_g)*maxval(dzfi_g)
         relative_residual = resmax/max(1._rp,abs(alphai)*field_norm(1)+op_norm*field_norm(2))
-        if(myid == 0) print*, 'CHECK Helmholtz mode/field/residual:',impdiff_mode,component,relative_residual
+        if(myid == 0) print*, 'CHECK Helmholtz mode/field/residual:',impdiff_mode,icomponent,relative_residual
         passed_loc = relative_residual < small
         if(myid == 0.and..not.passed_loc) print*, 'ERROR: wrong solution of Helmholtz equation.'
         passed = passed.and.passed_loc

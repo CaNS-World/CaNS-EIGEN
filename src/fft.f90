@@ -79,7 +79,7 @@ module mod_fft
       if(.not.is_fft(j)) cycle
       do i=1,2
         if(.not.c_associated(arrplan(i,j))) error stop 'ERROR: FFTW plan creation failed.'
-        nplans = nplans+1
+        nplans = nplans + 1
       end do
     end do
 #endif
@@ -222,12 +222,12 @@ module mod_fft
     integer    , intent(inout), dimension(:,:) :: arrplan
 #endif
     integer, intent(in), optional :: idir
-    integer :: i,j,jmin,jmax,destroyed
+    integer :: i,j,jmin,jmax,i_destroyed
     logical :: is_all
 #if defined(_OPENACC)
     integer :: istat
 #endif
-    destroyed = 0
+    i_destroyed = 0
     is_all = .not.present(idir)
     if(is_all) then
       jmin = 1
@@ -244,20 +244,20 @@ module mod_fft
         if(c_associated(arrplan(i,j))) then
           call sfftw_destroy_plan(arrplan(i,j))
           arrplan(i,j) = C_NULL_PTR
-          destroyed = destroyed+1
+          i_destroyed = i_destroyed + 1
         end if
 #else
         if(c_associated(arrplan(i,j))) then
           call dfftw_destroy_plan(arrplan(i,j))
           arrplan(i,j) = C_NULL_PTR
-          destroyed = destroyed+1
+          i_destroyed = i_destroyed + 1
         end if
 #endif
       end do
     end do
-    nplans = nplans-destroyed
+    nplans = nplans - i_destroyed
     if(nplans < 0) error stop 'ERROR: inconsistent FFT plan lifetime.'
-    if(destroyed > 0.and.nplans == 0) then
+    if(i_destroyed > 0.and.nplans == 0) then
       if(allocated(fft_work)) deallocate(fft_work)
 #if defined(_SINGLE_PRECISION)
       !$ call sfftw_cleanup_threads(ierr)
@@ -277,7 +277,7 @@ module mod_fft
         if(c_associated(arrplan(i,j))) then
           istat = cufftDestroy(arrplan(i,j))
           arrplan(i,j) = C_NULL_PTR
-          destroyed = destroyed+1
+          i_destroyed = i_destroyed + 1
         end if
 #endif
       end do

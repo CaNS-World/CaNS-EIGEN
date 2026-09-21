@@ -7,7 +7,7 @@
 module mod_solver
   use, intrinsic :: iso_c_binding, only: C_PTR,c_f_pointer,c_loc
   use decomp_2d
-  use mod_fft   , only: fft
+  use mod_fft   , only: fft,prep_dctviii,posp_dctviii
   use mod_param , only: ipencil_axis,is_poisson_dtdma
   use mod_linalg, only: gemm
   use mod_types
@@ -38,10 +38,16 @@ module mod_solver
     real(rp), pointer, contiguous, dimension(:,:)   :: px_2d,px_aux_2d,py_aux_1_2d,py_aux_2_2d
     integer :: q,i,j,k
     logical :: is_periodic_z
+    logical :: is_mixed(2)
+    integer :: idir
+    real(rp), pointer, contiguous :: pfft(:,:,:)
     integer, dimension(3) :: n_z,hi_z
     logical :: is_dtdma_update_
     real(rp) :: norm
     !
+    do idir=1,2
+      is_mixed(idir) = is_fft(idir).and.(c_or_f(idir) == 'f').and.(any(bc(0,idir)//bc(1,idir) == ['ND','DN']))
+    end do
     norm = normfft
     !
     is_dtdma_update_ = .true.
@@ -87,7 +93,10 @@ module mod_solver
     end select
     !
     if(is_fft(1)) then
-      call fft(arrplan(1,1),px) ! fwd transform in x
+      pfft => px
+      if(is_mixed(1)) call prep_dctviii('F',bc(0,1)//bc(1,1),1,px,pfft)
+      call fft(arrplan(1,1),pfft) ! fwd transform in x
+      if(is_mixed(1)) call posp_dctviii('F',bc(0,1)//bc(1,1),1,pfft,px)
     else
       call gemm('N','N',ng(1),xsize(2)*xsize(3),ng(1),1._rp, &
                 eigvecx_fwd,ng(1),px_2d,ng(1),0._rp,px_aux_2d,ng(1))
@@ -98,7 +107,10 @@ module mod_solver
     !
     call transpose_x_to_y(px,py)
     if(is_fft(2)) then
-      call fft(arrplan(1,2),py) ! fwd transform in y
+      pfft => py
+      if(is_mixed(2)) call prep_dctviii('F',bc(0,2)//bc(1,2),2,py,pfft)
+      call fft(arrplan(1,2),pfft) ! fwd transform in y
+      if(is_mixed(2)) call posp_dctviii('F',bc(0,2)//bc(1,2),2,pfft,py)
     else
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do k=1,ysize(3)
@@ -120,7 +132,7 @@ module mod_solver
       end do
     end if
     !
-    q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.hi_z(3) == ng(3))
+    q = merge(1,0,(c_or_f(3) == 'f').and.(bc(1,3) /= 'P').and.(hi_z(3) == ng(3)))
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
     if(.not.is_poisson_dtdma) then
       call transpose_y_to_z(py,pz)
@@ -133,7 +145,10 @@ module mod_solver
       if(present(is_dtdma_update)) is_dtdma_update = is_dtdma_update_
     end if
     if(is_fft(2)) then
-      call fft(arrplan(2,2),py) ! bwd transform in y
+      pfft => py
+      if(is_mixed(2)) call prep_dctviii('B',bc(0,2)//bc(1,2),2,py,pfft)
+      call fft(arrplan(2,2),pfft) ! bwd transform in y
+      if(is_mixed(2)) call posp_dctviii('B',bc(0,2)//bc(1,2),2,pfft,py)
     else
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do k=1,ysize(3)
@@ -157,7 +172,10 @@ module mod_solver
     !
     call transpose_y_to_x(py,px)
     if(is_fft(1)) then
-      call fft(arrplan(2,1),px) ! bwd transform in x
+      pfft => px
+      if(is_mixed(1)) call prep_dctviii('B',bc(0,1)//bc(1,1),1,px,pfft)
+      call fft(arrplan(2,1),pfft) ! bwd transform in x
+      if(is_mixed(1)) call posp_dctviii('B',bc(0,1)//bc(1,1),1,pfft,px)
     else
       call gemm('N','N',ng(1),xsize(2)*xsize(3),ng(1),1._rp, &
                 eigvecx_bwd,ng(1),px_2d,ng(1),0._rp,px_aux_2d,ng(1))
@@ -198,6 +216,34 @@ module mod_solver
     real(rp) :: den,pivot_tol,z
     integer :: i,j,k,nn
     !
+    ! a single periodic point has no Z Laplacian
+    !
+    if(is_periodic.and.(n == 1)) then
+      if(present(lambdaxy)) then
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(den,pivot_tol)
+        do j=1,ny
+          do i=1,nx
+            den = b(1) + lambdaxy(i,j)
+            pivot_tol = epsilon(den)*max(abs(b(1)),abs(lambdaxy(i,j)))
+            if(abs(den) <= pivot_tol) then
+              p(i,j,1) = 0.
+            else
+              p(i,j,1) = p(i,j,1)*norm/den
+            end if
+          end do
+        end do
+      else
+        z = norm/b(1)
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            p(i,j,1) = p(i,j,1)*z
+          end do
+        end do
+      end if
+      return
+    end if
+    !
     ! solve tridiagonal system
     !
     nn = n
@@ -229,7 +275,7 @@ module mod_solver
             ! singular final equation
             !
             pivot_tol = epsilon(den)*max(abs(b(k)+lambdaxy(i,j)),abs(a(k)*d(i,j,k-1)))
-            if(k == nn .and. abs(den) <= pivot_tol) then
+            if((k == nn).and.(abs(den) <= pivot_tol)) then
               d(i,j,k) = 0._rp
               p(i,j,k) = 0._rp
             else
@@ -399,11 +445,13 @@ module mod_solver
     real(rp),              dimension(nx,ny,n) :: aa,cc
     real(rp), allocatable, dimension(: ,: ,:) :: aa_y,cc_y,pp_y,aa_z,cc_z,pp_z
     real(rp), allocatable, dimension(: ,: ,:) :: pp_z_2,cc_z_0
-    real(rp) :: z,zz(2),bb(n)
+    real(rp) :: z,zz(2),bb(n),den,pivot_tol
     integer :: i,j,k
     integer , dimension(3) :: nr_z
     integer :: nx_r,ny_r,nn
+    logical :: is_present_lambdaxy
     !
+    is_present_lambdaxy = present(lambdaxy)
     nr_z(:) = dinfo_dtdma%zsz(:)
     allocate(aa_y(nx,ny,2), &
              cc_y(nx,ny,2), &
@@ -447,10 +495,15 @@ module mod_solver
             aa(i,j,k) =  aa(i,j,k)-cc(i,j,k)*aa(i,j,k+1)
             cc(i,j,k) = -cc(i,j,k)*cc(i,j,k+1)
           end do
-          z = 1._rp/(1._rp - aa(i,j,2)*cc(i,j,1))
-          p(i,j,1) = (p(i,j,1)-cc(i,j,1)*p(i,j,2))*z
-          aa(i,j,1) = aa(i,j,1)*z
-          cc(i,j,1) = -cc(i,j,1)*cc(i,j,2)*z
+          !
+          ! with two rows both points already belong to the reduced system
+          !
+          if(n > 2) then
+            z = 1._rp/(1._rp - aa(i,j,2)*cc(i,j,1))
+            p(i,j,1) = (p(i,j,1)-cc(i,j,1)*p(i,j,2))*z
+            aa(i,j,1) = aa(i,j,1)*z
+            cc(i,j,1) = -cc(i,j,1)*cc(i,j,2)*z
+          end if
           !
           ! gather reduced systems
           !
@@ -486,10 +539,15 @@ module mod_solver
             aa(i,j,k) =  aa(i,j,k)-cc(i,j,k)*aa(i,j,k+1)
             cc(i,j,k) = -cc(i,j,k)*cc(i,j,k+1)
           end do
-          z = 1._rp/(1._rp - aa(i,j,2)*cc(i,j,1))
-          p(i,j,1) = (p(i,j,1)-cc(i,j,1)*p(i,j,2))*z
-          aa(i,j,1) = aa(i,j,1)*z
-          cc(i,j,1) = -cc(i,j,1)*cc(i,j,2)*z
+          !
+          ! with two rows both points already belong to the reduced system
+          !
+          if(n > 2) then
+            z = 1._rp/(1._rp - aa(i,j,2)*cc(i,j,1))
+            p(i,j,1) = (p(i,j,1)-cc(i,j,1)*p(i,j,2))*z
+            aa(i,j,1) = aa(i,j,1)*z
+            cc(i,j,1) = -cc(i,j,1)*cc(i,j,2)*z
+          end if
           !
           ! gather reduced systems
           !
@@ -526,14 +584,21 @@ module mod_solver
       nn = nn-1
       cc_z_0(:,:,:) = cc_z(:,:,:)
     end if
-    !$OMP PARALLEL DEFAULT(shared) PRIVATE(z)
+    !$OMP PARALLEL DEFAULT(shared) PRIVATE(z,den,pivot_tol)
     !$OMP DO COLLAPSE(2)
     do j=1,ny_r
       do i=1,nx_r
         do k=2,nn
-          z = 1._rp/(1._rp - aa_z(i,j,k)*cc_z(i,j,k-1))
-          pp_z(i,j,k) = (pp_z(i,j,k)-aa_z(i,j,k)*pp_z(i,j,k-1))*z
-          cc_z(i,j,k) = cc_z(i,j,k)*z
+          den = 1._rp - aa_z(i,j,k)*cc_z(i,j,k-1)
+          pivot_tol = epsilon(den)*max(1._rp,abs(aa_z(i,j,k)*cc_z(i,j,k-1)))
+          if(is_present_lambdaxy.and.(k == nn).and.(abs(den) <= pivot_tol)) then ! pin the constant pressure mode
+            pp_z(i,j,k) = 0._rp
+            cc_z(i,j,k) = 0._rp
+          else
+            z = 1._rp/den
+            pp_z(i,j,k) = (pp_z(i,j,k)-aa_z(i,j,k)*pp_z(i,j,k-1))*z
+            cc_z(i,j,k) = cc_z(i,j,k)*z
+          end if
         end do
         do k=nn-1,1,-1
           pp_z(i,j,k) = pp_z(i,j,k) - cc_z(i,j,k)*pp_z(i,j,k+1)
@@ -543,7 +608,7 @@ module mod_solver
     !$OMP END PARALLEL
     if(is_periodic) then
       associate(cc_z => cc_z_0)
-      !$OMP PARALLEL DEFAULT(shared) PRIVATE(z)
+      !$OMP PARALLEL DEFAULT(shared) PRIVATE(z,den,pivot_tol)
       !$OMP DO COLLAPSE(2)
       do j=1,ny_r
         do i=1,nx_r
@@ -560,8 +625,13 @@ module mod_solver
           do k=nn-1,1,-1
             pp_z_2(i,j,k) = pp_z_2(i,j,k) - cc_z(i,j,k)*pp_z_2(i,j,k+1)
           end do
-          pp_z(i,j,nn+1) = (pp_z(i,j,nn+1) - cc_z(i,j,nn+1)*pp_z(  i,j,1) - aa_z(i,j,nn+1)*pp_z(  i,j,nn)) / &
-                           (1._rp          + cc_z(i,j,nn+1)*pp_z_2(i,j,1) + aa_z(i,j,nn+1)*pp_z_2(i,j,nn))
+          den = 1._rp + cc_z(i,j,nn+1)*pp_z_2(i,j,1) + aa_z(i,j,nn+1)*pp_z_2(i,j,nn)
+          pivot_tol = epsilon(den)*max(1._rp,abs(cc_z(i,j,nn+1)*pp_z_2(i,j,1)+aa_z(i,j,nn+1)*pp_z_2(i,j,nn)))
+          if(is_present_lambdaxy.and.(abs(den) <= pivot_tol)) then
+            pp_z(i,j,nn+1) = 0._rp
+          else
+            pp_z(i,j,nn+1) = (pp_z(i,j,nn+1)-cc_z(i,j,nn+1)*pp_z(i,j,1)-aa_z(i,j,nn+1)*pp_z(i,j,nn))/den
+          end if
           do k=1,nn
             pp_z(i,j,k) = pp_z(i,j,k) + pp_z_2(i,j,k)*pp_z(i,j,nn+1)
           end do
@@ -639,50 +709,47 @@ module mod_solver
       n_z(:)  = ysize(:)
       hi_z(:) = yend(:)
     end if
-    is_no_decomp_z = xsize(3) == n_z(3).or.ipencil_axis == 3 ! not decomposed along z: xsize(3) == ysize(3) == ng(3) when dims(2) = 1
-    if(.not.is_poisson_dtdma .and. .not.is_no_decomp_z) then
-      allocate(px(xsize(1),xsize(2),xsize(3)))
+    is_no_decomp_z = n(3) == ng(3)
+    if(.not.is_no_decomp_z) then
       allocate(py(ysize(1),ysize(2),ysize(3)))
-      allocate(pz(zsize(1),zsize(2),zsize(3)))
+      if(.not.is_poisson_dtdma) allocate(pz(zsize(1),zsize(2),zsize(3)))
       select case(ipencil_axis)
       case(1)
+        allocate(px(xsize(1),xsize(2),xsize(3)))
         !$OMP PARALLEL WORKSHARE
         px(:,:,:) = p(1:n(1),1:n(2),1:n(3))
         !$OMP END PARALLEL WORKSHARE
-        !call transpose_x_to_z(px,pz)
         call transpose_x_to_y(px,py)
-        call transpose_y_to_z(py,pz)
       case(2)
         !$OMP PARALLEL WORKSHARE
         py(:,:,:) = p(1:n(1),1:n(2),1:n(3))
         !$OMP END PARALLEL WORKSHARE
-        call transpose_y_to_z(py,pz)
       end select
+      if(.not.is_poisson_dtdma) call transpose_y_to_z(py,pz)
     end if
     !
-    q = merge(1,0,c_or_f(3) == 'f'.and.bcz(1) == 'D'.and.hi_z(3) == ng(3))
+    q = merge(1,0,(c_or_f(3) == 'f').and.(bcz(1) /= 'P').and.(hi_z(3) == ng(3)))
     is_periodic_z = bcz(0)//bcz(1) == 'PP'
-    if(.not.is_no_decomp_z) then
-      if(.not.is_poisson_dtdma) then
-        call gaussel(      n_z(1),n_z(2),n_z(3)-q,0,a,b,c,is_periodic_z,norm,pz)
-      else
-        call gaussel_dtdma(n_z(1),n_z(2),n_z(3)-q,1,a,b,c,is_periodic_z,norm,p)
-      end if
-    else
+    if(is_no_decomp_z) then
       call gaussel(n(1),n(2),n(3)-q,1,a,b,c,is_periodic_z,norm,p)
+    else if(is_poisson_dtdma) then
+      !
+      ! the reduced-system descriptor expects Y pencils without halos
+      !
+      call gaussel_dtdma(n_z(1),n_z(2),n_z(3)-q,0,a,b,c,is_periodic_z,norm,py)
+    else
+      call gaussel(n_z(1),n_z(2),n_z(3)-q,0,a,b,c,is_periodic_z,norm,pz)
     end if
     !
-    if(.not.is_poisson_dtdma .and. .not.is_no_decomp_z) then
+    if(.not.is_no_decomp_z) then
+      if(.not.is_poisson_dtdma) call transpose_z_to_y(pz,py)
       select case(ipencil_axis)
       case(1)
-        !call transpose_z_to_x(pz,px)
-        call transpose_z_to_y(pz,py)
         call transpose_y_to_x(py,px)
         !$OMP PARALLEL WORKSHARE
         p(1:n(1),1:n(2),1:n(3)) = px(:,:,:)
         !$OMP END PARALLEL WORKSHARE
       case(2)
-        call transpose_z_to_y(pz,py)
         !$OMP PARALLEL WORKSHARE
         p(1:n(1),1:n(2),1:n(3)) = py(:,:,:)
         !$OMP END PARALLEL WORKSHARE
@@ -707,7 +774,13 @@ module mod_solver
     real(rp), pointer, contiguous, dimension(:,:) :: py_aux_1_2d,py_aux_2_2d
     integer :: i,j,k,q
     logical :: is_periodic_z
+    logical :: is_mixed(2)
+    integer :: idir
+    real(rp), pointer, contiguous :: pfft(:,:,:)
     !
+    do idir=1,2
+      is_mixed(idir) = is_fft(idir).and.(c_or_f(idir) == 'f').and.(any(bc(0,idir)//bc(1,idir) == ['ND','DN']))
+    end do
     allocate(py(ysize(1),ysize(2),ysize(3)))
     if(ipencil_axis == 3) allocate(pz(zsize(1),zsize(2),zsize(3)))
     if(.not.is_fft(2)) then
@@ -729,7 +802,10 @@ module mod_solver
     end select
     !
     if(is_fft(2)) then
-      call fft(arrplan(1,2),py)
+      pfft => py
+      if(is_mixed(2)) call prep_dctviii('F',bc(0,2)//bc(1,2),2,py,pfft)
+      call fft(arrplan(1,2),pfft)
+      if(is_mixed(2)) call posp_dctviii('F',bc(0,2)//bc(1,2),2,pfft,py)
     else
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do k=1,ysize(3)
@@ -751,12 +827,15 @@ module mod_solver
       end do
     end if
     !
-    q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) == 'D'.and.yend(3) == ng(3))
+    q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) /= 'P'.and.yend(3) == ng(3))
     is_periodic_z = bc(0,3)//bc(1,3) == 'PP'
     call gaussel_yz(ysize(1),ysize(2),ysize(3)-q,0,a,b,c,is_periodic_z,normfft,py,lambday)
     !
     if(is_fft(2)) then
-      call fft(arrplan(2,2),py)
+      pfft => py
+      if(is_mixed(2)) call prep_dctviii('B',bc(0,2)//bc(1,2),2,py,pfft)
+      call fft(arrplan(2,2),pfft)
+      if(is_mixed(2)) call posp_dctviii('B',bc(0,2)//bc(1,2),2,pfft,py)
     else
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do k=1,ysize(3)
@@ -794,37 +873,109 @@ module mod_solver
   subroutine gaussel_yz(nx,ny,n,nh,a,b,c,is_periodic,norm,p,lambday)
     implicit none
     integer , intent(in) :: nx,ny,n,nh
-    real(rp), intent(in), dimension(:) :: a,b,c,lambday
+    real(rp), intent(in), dimension(:) :: a,b,c
     logical , intent(in) :: is_periodic
     real(rp), intent(in) :: norm
     real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
+    real(rp), intent(in), dimension(:), optional :: lambday
     real(rp), allocatable, dimension(:,:,:) :: d,p2
-    real(rp) :: z,lambda
+    real(rp) :: den,pivot_tol,z
     integer :: i,j,k,nn
+    !
+    ! a single periodic point has no Z Laplacian
+    !
+    if(is_periodic.and.(n == 1)) then
+      if(present(lambday)) then
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(den,pivot_tol)
+        do j=1,ny
+          do i=1,nx
+            den = b(1) + lambday(j)
+            pivot_tol = epsilon(den)*max(abs(b(1)),abs(lambday(j)))
+            if(abs(den) <= pivot_tol) then
+              p(i,j,1) = 0.
+            else
+              p(i,j,1) = p(i,j,1)*norm/den
+            end if
+          end do
+        end do
+      else
+        z = norm/b(1)
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            p(i,j,1) = p(i,j,1)*z
+          end do
+        end do
+      end if
+      return
+    end if
+    !
+    ! solve tridiagonal system
     !
     nn = n
     if(is_periodic) nn = n-1
+    !
+    ! allocate work arrays
+    !
     allocate(d(nx,ny,nn))
-    !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
-    do j=1,ny
-      do i=1,nx
-        lambda = lambday(j)
-        z = 1._rp/(b(1) + lambda)
-        d(i,j,1) = c(1)*z
-        p(i,j,1) = p(i,j,1)*norm*z
-      end do
-    end do
-    do k=2,nn
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+    !
+    ! forward elimination
+    !
+    if(present(lambday)) then
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z)
       do j=1,ny
         do i=1,nx
-          lambda = lambday(j)
-          z = 1._rp/(b(k) + lambda - a(k)*d(i,j,k-1))
-          d(i,j,k) = c(k)*z
-          p(i,j,k) = (p(i,j,k)*norm - a(k)*p(i,j,k-1))*z
+          z = 1._rp/(b(1) + lambday(j))
+          d(i,j,1) = c(1)*z
+          p(i,j,1) = p(i,j,1)*norm*z
         end do
       end do
-    end do
+      !
+      do k=2,nn
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(den,pivot_tol,z)
+        do j=1,ny
+          do i=1,nx
+            den = b(k) + lambday(j) - a(k)*d(i,j,k-1)
+            !
+            ! pin the constant pressure mode instead of regularizing its
+            ! singular final equation
+            !
+            pivot_tol = epsilon(den)*max(abs(b(k)+lambday(j)),abs(a(k)*d(i,j,k-1)))
+            if((k == nn).and.(abs(den) <= pivot_tol)) then
+              d(i,j,k) = 0._rp
+              p(i,j,k) = 0._rp
+            else
+              z = 1._rp/den
+              d(i,j,k) = c(k)*z
+              p(i,j,k) = (p(i,j,k)*norm - a(k)*p(i,j,k-1))*z
+            end if
+          end do
+        end do
+      end do
+    else
+      z = 1._rp/b(1)
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+      do j=1,ny
+        do i=1,nx
+          d(i,j,1) = c(1)*z
+          p(i,j,1) = p(i,j,1)*norm*z
+        end do
+      end do
+      !
+      do k=2,nn
+        z = 1._rp/(b(k) - a(k)*d(1,1,k-1))
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            d(i,j,k) = c(k)*z
+            p(i,j,k) = (p(i,j,k)*norm - a(k)*p(i,j,k-1))*z
+          end do
+        end do
+      end do
+    end if
+    !
+    ! backward substitution
+    !
     do k=nn-1,1,-1
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do j=1,ny
@@ -833,43 +984,67 @@ module mod_solver
         end do
       end do
     end do
+    !
+    ! handle periodic closure with an auxiliary tridiagonal solve
+    !
     if(is_periodic) then
       allocate(p2(nx,ny,nn))
-      !$OMP PARALLEL DO COLLAPSE(3) DEFAULT(shared)
-      do k=1,nn
-        do j=1,ny
-          do i=1,nx
-            p2(i,j,k) = 0.
-          end do
-        end do
-      end do
+      !
+      ! initialize the auxiliary right-hand side for the periodic correction
+      !
       !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
       do j=1,ny
         do i=1,nx
-          p2(i,j,1 ) = -a(1 )
-          p2(i,j,nn) = -c(nn)
+          p2(i,j,1:nn) = 0.
+          p2(i,j,1)  = -a(1)
+          p2(i,j,nn) = p2(i,j,nn) - c(nn)
         end do
       end do
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
-      do j=1,ny
-        do i=1,nx
-          lambda = lambday(j)
-          z = 1._rp/(b(1) + lambda)
-          d( i,j,1) = c(1)*z
-          p2(i,j,1) = p2(i,j,1)*z
-        end do
-      end do
-      do k=2,nn
-        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z,lambda)
+      !
+      ! forward elimination for the auxiliary system
+      !
+      if(present(lambday)) then
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z)
         do j=1,ny
           do i=1,nx
-            lambda = lambday(j)
-            z = 1._rp/(b(k) + lambda - a(k)*d(i,j,k-1))
-            d( i,j,k) = c(k)*z
-            p2(i,j,k) = (p2(i,j,k) - a(k)*p2(i,j,k-1))*z
+            z = 1._rp/(b(1) + lambday(j))
+            d(i,j,1) = c(1)*z
+            p2(i,j,1) = p2(i,j,1)*z
           end do
         end do
-      end do
+        do k=2,nn
+          !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(z)
+          do j=1,ny
+            do i=1,nx
+              z = 1._rp/(b(k) + lambday(j) - a(k)*d(i,j,k-1))
+              d(i,j,k) = c(k)*z
+              p2(i,j,k) = (p2(i,j,k) - a(k)*p2(i,j,k-1))*z
+            end do
+          end do
+        end do
+      else
+        z = 1._rp/b(1)
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            d(i,j,1) = c(1)*z
+            p2(i,j,1) = p2(i,j,1)*z
+          end do
+        end do
+        do k=2,nn
+          z = 1._rp/(b(k) - a(k)*d(1,1,k-1))
+          !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+          do j=1,ny
+            do i=1,nx
+              d(i,j,k) = c(k)*z
+              p2(i,j,k) = (p2(i,j,k) - a(k)*p2(i,j,k-1))*z
+            end do
+          end do
+        end do
+      end if
+      !
+      ! backward substitution for the auxiliary system
+      !
       do k=nn-1,1,-1
         !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
         do j=1,ny
@@ -878,14 +1053,35 @@ module mod_solver
           end do
         end do
       end do
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(lambda)
-      do j=1,ny
-        do i=1,nx
-          lambda = lambday(j)
-          p(i,j,nn+1) = (p(i,j,nn+1)*norm - c(nn+1)*p( i,j,1) - a(nn+1)*p( i,j,nn)) / &
-                        (b(nn+1) + lambda + c(nn+1)*p2(i,j,1) + a(nn+1)*p2(i,j,nn))
+      !
+      ! solve for the periodic closure value and correct the interior solution
+      !
+      if(present(lambday)) then
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(den,pivot_tol)
+        do j=1,ny
+          do i=1,nx
+            den = b(nn+1) + lambday(j) + c(nn+1)*p2(i,j,1) + a(nn+1)*p2(i,j,nn)
+            pivot_tol = epsilon(den)*max(abs(b(nn+1)+lambday(j)), &
+                                         abs(c(nn+1)*p2(i,j,1)+a(nn+1)*p2(i,j,nn)))
+            if(abs(den) <= pivot_tol) then
+              p(i,j,nn+1) = 0._rp
+            else
+              p(i,j,nn+1) = (p(i,j,nn+1)*norm - c(nn+1)*p(i,j,1) - a(nn+1)*p(i,j,nn))/den
+            end if
+          end do
         end do
-      end do
+      else
+        !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
+        do j=1,ny
+          do i=1,nx
+            p(i,j,nn+1) = (p(i,j,nn+1)*norm - c(nn+1)*p( i,j,1) - a(nn+1)*p( i,j,nn)) / &
+                          (b(nn+1)          + c(nn+1)*p2(i,j,1) + a(nn+1)*p2(i,j,nn))
+          end do
+        end do
+      end if
+      !
+      ! apply the (Sherman-Morrison) periodic correction to all interior points
+      !
       do k=1,nn
         !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
         do j=1,ny

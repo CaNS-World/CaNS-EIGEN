@@ -72,14 +72,16 @@ module mod_solve_helmholtz
       bb(k) = b(k) + alphai
     end do
     !
-    call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
     select case(impdiff_mode)
     case(impdiff_z)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbz=rhsbz,p=p,alpha=alpha)
       call solver_gaussel_z(n,ng,hi,a,bb,c,cbc(:,3),c_or_f,alphai,p)
     case(impdiff_yz)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsby=rhsby,rhsbz=rhsbz,p=p,alpha=alpha)
       call solver_gaussel_yz(n,ng,is_fft,arrplan,normfft(2)*alphai, &
                              lambday,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbc,c_or_f,p)
     case(impdiff_xyz)
+      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
       call solver(n,ng,is_fft,arrplan,product(normfft(:))*alphai, &
                   lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                   a,bb,c,cbc,c_or_f,p)

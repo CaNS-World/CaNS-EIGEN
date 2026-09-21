@@ -6,24 +6,26 @@
 ! -
 module mod_sanity
   use, intrinsic :: iso_c_binding, only: C_PTR
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use mpi
   use decomp_2d
-  use mod_bound     , only: boundp,bounduvw,updt_rhs_b
-  use mod_chkdiv    , only: chkdiv
-  use mod_common_mpi, only: myid,ierr
-  use mod_correc    , only: correc
-  use mod_debug     , only: chk_helmholtz
-  use mod_fft       , only: fftend
-  use mod_fillps    , only: fillps
-  use mod_initflow  , only: add_noise
-  use mod_initmpi   , only: initmpi
-  use mod_initsolver, only: initsolver
-  use mod_param     , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
-  use mod_param     , only: is_poisson_fft_param => is_poisson_fft
+  use mod_bound          , only: boundp,bounduvw,updt_rhs_b
+  use mod_chkdiv         , only: chkdiv
+  use mod_common_mpi     , only: myid,ierr
+  use mod_correc         , only: correc
+  use mod_debug          , only: chk_helmholtz
+  use mod_fft            , only: fftend
+  use mod_fillps         , only: fillps
+  use mod_initflow       , only: add_noise
+  use mod_initmpi        , only: initmpi
+  use mod_initsolver     , only: initsolver
+  use mod_solve_helmholtz, only: solve_helmholtz
+  use mod_param          , only: ipencil_axis,impdiff_mode,impdiff_z,impdiff_yz,impdiff_xyz,is_poisson_dtdma,small
+  use mod_param          , only: is_poisson_fft_param => is_poisson_fft
 #if !(defined(_OPENACC) || defined(_OPENMP))
-  use mod_solver    , only: solver
+  use mod_solver         , only: solver
 #else
-  use mod_solver_gpu, only: solver => solver_gpu
+  use mod_solver_gpu     , only: solver => solver_gpu
 #endif
   use mod_types
   implicit none
@@ -43,12 +45,21 @@ module mod_sanity
     real(rp)        , intent(in), dimension(0:1,3,3) :: bcvel
     real(rp)        , intent(in), dimension(0:1,3)   :: bcpre
     logical         , intent(in), dimension(3)       :: is_forced
-    logical :: passed
+    logical :: passed,passed_loc
     !
-    call chk_dims(ng,dims,passed);                 if(.not.passed) call abortit
+    call chk_dims(ng,dims,cbcvel,cbcpre,passed);                 if(.not.passed) call abortit
     call chk_stop_type(stop_type,passed);          if(.not.passed) call abortit
     call chk_bc(cbcvel,cbcpre,bcvel,bcpre,passed); if(.not.passed) call abortit
     call chk_forcing(cbcpre,is_forced,passed);     if(.not.passed) call abortit
+    if(is_poisson_dtdma) then
+      passed_loc = ng(3)/dims(2) >= 2
+      if(impdiff_mode /= 0 .and. (impdiff_mode /= impdiff_z .or. dims(2) > 1)) then
+        if(cbcvel(1,3,3) /= 'P') passed_loc = passed_loc.and.(ng(3)/dims(2)-1 >= 2)
+      end if
+      if(myid == 0.and.(.not.passed_loc)) &
+        print*, 'ERROR: DTDMA requires at least two active points per Z slab.'
+      if(.not.passed_loc) call abortit
+    end if
     if(impdiff_mode == impdiff_z .and. .not.(ipencil_axis == 3) .and. .not.is_poisson_dtdma) then
       if(dims(2) > 1) then
         if(myid == 0)  print*, 'Warning: a run with implicit Z diffusion (`impdiff_mode = 1`) is much more efficient &
@@ -102,22 +113,38 @@ module mod_sanity
     end if
   end subroutine chk_stop_type
   !
-  subroutine chk_dims(ng,dims,passed)
+  subroutine chk_dims(ng,dims,cbcvel,cbcpre,passed)
+    use mod_param, only: nscal,cbcscal
     implicit none
-    integer, intent(in), dimension(3) :: ng
-    integer, intent(in), dimension(2) :: dims
+    integer, intent(in) :: ng(3),dims(2)
+    character(len=1), intent(in) :: cbcvel(0:1,3,3),cbcpre(0:1,3)
     logical, intent(out) :: passed
-    integer, dimension(2) :: ii
-    logical :: passed_loc
-    passed = .true.
+    integer :: ii(2),idir,ivel,iscal
+    logical :: periodic
+    passed = all(ng >= 1).and.any(ipencil_axis == [1,2,3])
+    if(.not.passed) then
+      if(myid == 0) print*, 'ERROR: positive grid sizes and a valid pencil axis are required.'
+      return
+    end if
     ii = pack([1,2,3],[1,2,3] /= ipencil_axis)
-    passed_loc = all(dims(:)<=ng(ii)).and.all(dims(:)>=1)
-    if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: 1 <= dims(:) <= [ng(1),ng(2)], or [ng(1),ng(3)], or [ng(2),ng(3)] depending on the decomposition.'
-    passed = passed.and.passed_loc
+    passed = all(dims <= ng(ii)).and.all(dims >= 1)
+    if(myid == 0.and..not.passed) print*, 'ERROR: process grid exceeds the physical grid.'
+    do idir=1,3
+      if(ng(idir) /= 1) cycle
+      periodic = cbcpre(0,idir)//cbcpre(1,idir) == 'PP'
+      do ivel=1,3
+        periodic = periodic.and.(cbcvel(0,idir,ivel)//cbcvel(1,idir,ivel) == 'PP')
+      end do
+      do iscal=1,nscal
+        periodic = periodic.and.(cbcscal(0,idir,iscal)//cbcscal(1,idir,iscal) == 'PP')
+      end do
+      passed = passed.and.periodic
+      if(myid == 0.and..not.periodic) print*, 'ERROR: singleton directions require periodic boundary conditions.'
+    end do
   end subroutine chk_dims
   !
   subroutine chk_bc(cbcvel,cbcpre,bcvel,bcpre,passed)
+    use mod_param, only: nscal,cbcscal
     implicit none
     character(len=1), intent(in), dimension(0:1,3,3) :: cbcvel
     character(len=1), intent(in), dimension(0:1,3  ) :: cbcpre
@@ -125,7 +152,7 @@ module mod_sanity
     real(rp)        , intent(in), dimension(0:1,3  ) :: bcpre
     logical         , intent(out) :: passed
     character(len=2) :: bc01v,bc01p
-    integer :: ivel,idir
+    integer :: ivel,idir,iscal
     logical :: passed_loc
     passed = .true.
     !
@@ -157,6 +184,21 @@ module mod_sanity
     if(myid == 0.and.(.not.passed_loc)) print*, 'ERROR: pressure BCs not valid.'
     passed = passed.and.passed_loc
     !
+    ! check that all variables have the same periodic directions
+    !
+    passed_loc = .true.
+    do idir=1,3
+      do ivel=1,3
+        passed_loc = passed_loc.and.all((cbcvel(:,idir,ivel) == 'P').eqv.(cbcpre(:,idir) == 'P'))
+      end do
+      do iscal=1,nscal
+        passed_loc = passed_loc.and.all((cbcscal(:,idir,iscal) == 'P').eqv.(cbcpre(:,idir) == 'P'))
+      end do
+    end do
+    if(myid == 0.and.(.not.passed_loc)) &
+      print*, 'ERROR: velocity and scalar periodic BCs must match pressure BCs in every direction.'
+    passed = passed.and.passed_loc
+    !
     passed_loc = .true.
     do idir=1,3
       ivel = idir
@@ -180,54 +222,29 @@ module mod_sanity
     passed = passed.and.passed_loc
     if(impdiff_mode == impdiff_yz .or. impdiff_mode == impdiff_xyz) then
       passed_loc = .true.
-      do ivel = 1,3
+      do ivel=1,3
         do idir=1,2
-          if((impdiff_mode == impdiff_xyz .or. idir == 2) .and. is_poisson_fft_param(idir)) then
-            bc01v = cbcvel(0,idir,ivel)//cbcvel(1,idir,ivel)
-            passed_loc = passed_loc.and.(bc01v /= 'NN')
+          if((impdiff_mode == impdiff_xyz.or.idir == 2).and.is_poisson_fft_param(idir)) then
+            passed_loc = passed_loc.and.(bcvel(0,idir,ivel) == 0.).and.(bcvel(1,idir,ivel) == 0.)
           end if
         end do
       end do
-      if(myid == 0.and.(.not.passed_loc)) &
-        print*, 'ERROR: Neumann-Neumann velocity BCs with FFT-based implicit diffusion currently not supported in x/y.'
-      passed = passed.and.passed_loc
-      !
-      passed_loc = .true.
-      do ivel = 1,3
-        do idir=1,2
-          if((impdiff_mode == impdiff_xyz .or. idir == 2) .and. is_poisson_fft_param(idir)) then
-            bc01v = cbcvel(0,idir,ivel)//cbcvel(1,idir,ivel)
-            if(ivel == idir) passed_loc = passed_loc.and.(bc01v == 'PP')
-          end if
-        end do
-      end do
-      if(myid == 0.and.(.not.passed_loc)) &
-        print*, 'ERROR: face-centered velocity BCs with FFT-based implicit diffusion in x/y currently require periodic BCs.'
-      passed = passed.and.passed_loc
-      !
-      passed_loc = .true.
-      do ivel = 1,3
-        do idir=1,2
-          if((impdiff_mode == impdiff_xyz .or. idir == 2) .and. is_poisson_fft_param(idir)) then
-            passed_loc = passed_loc.and.((bcvel(0,idir,ivel) == 0.).and.(bcvel(1,idir,ivel) == 0.))
-          end if
-        end do
-      end do
-      if(myid == 0.and.(.not.passed_loc)) &
+      if(myid == 0.and..not.passed_loc) &
         print*, 'ERROR: velocity BCs with FFT-based implicit diffusion in directions x/y must be homogeneous (value = 0.).'
       passed = passed.and.passed_loc
     end if
-#if defined(_OPENACC) || defined(_OPENMP)
-    passed_loc = .true.
-    do idir=1,2
-      bc01p = cbcpre(0,idir)//cbcpre(1,idir)
-      passed_loc = passed_loc.and..not.( (bc01p == 'DN').or. &
-                                         (bc01p == 'ND') )
-    end do
-    if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: pressure BCs "ND" or "DN" along x or y not implemented on GPUs yet.'
-    passed = passed.and.passed_loc
-#endif
+    block
+      character(len=2) :: pair
+      passed_loc = .true.
+      do iscal=1,nscal
+        do idir=1,3
+          pair = cbcscal(0,idir,iscal)//cbcscal(1,idir,iscal)
+          passed_loc = passed_loc.and.any(pair == ['PP','DD','NN','DN','ND'])
+        end do
+      end do
+      if(myid == 0.and..not.passed_loc) print*, 'ERROR: scalar boundary conditions are not valid.'
+      passed = passed.and.passed_loc
+    end block
   end subroutine chk_bc
   !
   subroutine chk_forcing(cbcpre,is_forced,passed)
@@ -256,6 +273,7 @@ module mod_sanity
     use mod_workspaces     , only: set_cufft_wspace
     use mod_common_cudecomp, only: istream_acc_queue_1
 #endif
+    use mod_param, only: nscal,cbcscal,bcscal
     implicit none
     integer , intent(in), dimension(3) :: ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z
     logical , intent(in), dimension(2) :: is_poisson_fft
@@ -269,7 +287,8 @@ module mod_sanity
     character(len=1), intent(in), dimension(0:1,3)   :: cbcpre
     real(rp), intent(in), dimension(0:1,3,3)         :: bcvel
     real(rp), intent(in), dimension(0:1,3)           :: bcpre
-    real(rp), allocatable, dimension(:,:,:) :: u,v,w,p
+    real(rp), allocatable, target, dimension(:,:,:) :: u,v,w,p,phi
+    real(rp), pointer, contiguous :: field(:,:,:)
 #if !(defined(_OPENACC) || defined(_OPENMP)) || defined(_USE_HIP)
     type(C_PTR), dimension(2,2) :: arrplan
 #else
@@ -278,9 +297,13 @@ module mod_sanity
     real(rp), dimension(2) :: normfft
     real(rp), allocatable, dimension(:) :: lambdax_g,lambday_g
     real(rp), allocatable, dimension(:,:) :: lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd
-    real(rp), allocatable, dimension(:) :: a,b,c,bb
+    real(rp), allocatable, dimension(:) :: a,b,c
     real(rp), allocatable, dimension(:,:,:) :: rhsbx,rhsby,rhsbz
-    real(rp) :: dt,dti,alpha,alphai
+    real(rp) :: dt,dti,alpha,alphai,div_initial,relative_residual,op_norm,field_norm(2)
+    character(len=1) :: field_bc(0:1,3),center(3)
+    real(rp) :: field_values(0:1,3)
+    logical :: implicit_dir(3)
+    integer :: icomponent
     real(rp) :: divtot,divmax,restot,resmax
     integer :: i,j,k
     logical :: passed,passed_loc
@@ -290,6 +313,7 @@ module mod_sanity
              v(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
              w(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
              p(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
+             phi(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
              lambdax_g(ng(1)),lambday_g(ng(2)),lambdaxy(n_z(1),n_z(2)), &
              eigvecx_fwd(ng(1),ng(1)),eigvecx_bwd(ng(1),ng(1)), &
              eigvecy_fwd(ng(2),ng(2)),eigvecy_bwd(ng(2),ng(2)), &
@@ -306,25 +330,27 @@ module mod_sanity
     v(:,:,:) = 0.
     w(:,:,:) = 0.
     p(:,:,:) = 0.
+    phi(:,:,:) = 0.
     call add_noise(ng,lo,123,.5_rp,u(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,456,.5_rp,v(1:n(1),1:n(2),1:n(3)))
     call add_noise(ng,lo,789,.5_rp,w(1:n(1),1:n(2),1:n(3)))
-    !$acc        enter data copyin(u,v,w,p)
-    !$omp target enter data map(to:u,v,w,p)
+    !$acc        enter data copyin(u,v,w,p,phi)
+    !$omp target enter data map(to:u,v,w,p,phi)
     !
     ! test pressure correction
     !
     call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                     cbcpre,bcpre(:,:),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                     ['c','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-    !$acc        enter data copyin(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-    !$omp target enter data map(to:lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$acc        enter data copyin(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$omp target enter data map(to:lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
 #if defined(_OPENACC) || defined(_OPENMP)
     call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
     dt  = acos(-1.) ! value is irrelevant
     dti = dt**(-1)
     call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
+    call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,div_initial)
     call fillps(n,dxfi,dyfi,dzfi,dti,u,v,w,p)
     call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbx,rhsby,rhsbz,p)
     call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
@@ -333,141 +359,107 @@ module mod_sanity
     call correc(n,dxci,dyci,dzci,dt,p,u,v,w)
     call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
     call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
-    passed_loc = divmax < small
+    !$acc        update self(u,v,w,p)
+    !$omp target update from(u,v,w,p)
+    passed_loc = all(ieee_is_finite(u)).and.all(ieee_is_finite(v)).and. &
+                 all(ieee_is_finite(w)).and.all(ieee_is_finite(p))
+    call MPI_ALLREDUCE(MPI_IN_PLACE,passed_loc,1,MPI_LOGICAL,MPI_LAND,MPI_COMM_WORLD,ierr)
+    if(.not.passed_loc) error stop 'ERROR: nonfinite pressure-correction result.'
+    relative_residual = divmax/max(1._rp,div_initial)
+    if(myid == 0) print*, 'CHECK pressure relative divergence:',relative_residual
+    passed_loc = relative_residual < small
     if(myid == 0.and.(.not.passed_loc)) &
     print*, 'ERROR: Pressure correction: Divergence is too large, with maximum = ', divmax
     passed = passed.and.passed_loc
     call fftend(arrplan)
-    if(impdiff_mode == impdiff_xyz) then
-      allocate(bb(n_z(3)))
-      alpha  = acos(-1.) ! irrelevant
-      alphai = alpha**(-1)
-      !$acc parallel     loop collapse(3) default(present)
-      !$omp target teams loop collapse(3)
-      do k=0,n(3)+1
-        do j=0,n(2)+1
-          do i=0,n(1)+1
-            u(i,j,k) = 0.
-            v(i,j,k) = 0.
-            w(i,j,k) = 0.
-          end do
-        end do
-      end do
-      !$acc        update self(u,v,w)
-      !$omp target update from(u,v,w)
-      call add_noise(ng,lo,123,.5_rp,u(1:n(1),1:n(2),1:n(3)))
-      call add_noise(ng,lo,456,.5_rp,v(1:n(1),1:n(2),1:n(3)))
-      call add_noise(ng,lo,789,.5_rp,w(1:n(1),1:n(2),1:n(3)))
-      !$acc        update device(u,v,w)
-      !$omp target update to(    u,v,w)
-      !$acc        enter data create(   bb)
-      !$omp target enter data map(alloc:bb)
-      call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,1),bcvel(:,:,1),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
-                      ['f','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !
+    implicit_dir = [ impdiff_mode == impdiff_xyz, &
+                    (impdiff_mode == impdiff_yz).or.(impdiff_mode == impdiff_xyz), &
+                     impdiff_mode /= 0 ]
+    if(impdiff_mode /= 0) then
+      alpha = -acos(-1._rp)
+      alphai = 1._rp/alpha
+      do icomponent=1,3+nscal
+        center = 'c'
+        if(icomponent <= 3) then
+          center(icomponent) = 'f'
+          field_bc     = cbcvel(:,:,icomponent)
+          field_values =  bcvel(:,:,icomponent)
+        else
+          field_bc     = cbcscal(:,:,icomponent-3)
+          field_values =  bcscal(:,:,icomponent-3)
+        end if
+        select case(icomponent)
+        case(1)
+          field => u
+        case(2)
+          field => v
+        case(3)
+          field => w
+        case default
+          field => phi
+        end select
+        field(:,:,:) = 0.
+        call add_noise(ng,lo,123*icomponent,.5_rp,field(1:n(1),1:n(2),1:n(3)))
+        !$acc        update device(field)
+        !$omp target update to(    field)
+        call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+                        field_bc,field_values,lambdax_g,lambday_g,lambdaxy, &
+                        eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,center,a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
+        !$acc        update device(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+        !$omp target update to(    lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+        if(impdiff_mode /= impdiff_xyz) call fftend(arrplan,1)
+        if(impdiff_mode == impdiff_z  ) call fftend(arrplan,2)
 #if defined(_OPENACC) || defined(_OPENMP)
-      call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
+        call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel     loop collapse(3) default(present)
-      !$omp target teams loop collapse(3)
-      do k=0,n(3)+1
-        do j=0,n(2)+1
-          do i=0,n(1)+1
-            p(i,j,k) = u(i,j,k)
+        if(icomponent <= 3) then
+          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+        else
+          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+        end if
+        !$acc wait
+        !$acc parallel     loop collapse(3) default(present)
+        !$omp target teams loop collapse(3)
+        do k=0,n(3)+1
+          do j=0,n(2)+1
+            do i=0,n(1)+1
+              p(i,j,k) = field(i,j,k)
+            end do
           end do
         end do
+        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
+                             eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                             a,b,c,rhsbx,rhsby,rhsbz,is_bound,field_bc,center,field)
+        !$acc wait
+        call fftend(arrplan)
+        if(icomponent <= 3) then
+          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+        else
+          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+        end if
+        call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,field,field_bc,is_bound,center, &
+                           restot,resmax,implicit_dir)
+        !$acc        update self(field,p)
+        !$omp target update from(field,p)
+        passed_loc = all(ieee_is_finite(field)).and.all(ieee_is_finite(p))
+        call MPI_ALLREDUCE(MPI_IN_PLACE,passed_loc,1,MPI_LOGICAL,MPI_LAND,MPI_COMM_WORLD,ierr)
+        if(.not.passed_loc) error stop 'ERROR: nonfinite Helmholtz result.'
+        field_norm = [maxval(abs(p)),maxval(abs(field))]
+        call MPI_ALLREDUCE(MPI_IN_PLACE,field_norm,2,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
+        op_norm = abs(alphai)
+        if(implicit_dir(1)) op_norm = op_norm+4._rp*maxval(dxci_g)*maxval(dxfi_g)
+        if(implicit_dir(2)) op_norm = op_norm+4._rp*maxval(dyci_g)*maxval(dyfi_g)
+        if(implicit_dir(3)) op_norm = op_norm+4._rp*maxval(dzci_g)*maxval(dzfi_g)
+        relative_residual = resmax/max(1._rp,abs(alphai)*field_norm(1)+op_norm*field_norm(2))
+        if(myid == 0) print*, 'CHECK Helmholtz mode/field/residual:',impdiff_mode,icomponent,relative_residual
+        passed_loc = relative_residual < small
+        if(myid == 0.and..not.passed_loc) print*, 'ERROR: wrong solution of Helmholtz equation.'
+        passed = passed.and.passed_loc
       end do
-      !$acc parallel     loop default(present)
-      !$omp target teams loop
-      do k=1,n_z(3)
-        bb(k) = b(k) + alphai
-      end do
-      call updt_rhs_b(['f','c','c'],cbcvel(:,:,1),n,is_bound,rhsbx,rhsby,rhsbz,u,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
-                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,1),['f','c','c'],u)
-      call fftend(arrplan)
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `u`
-      call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,u,cbcvel(:,:,1),is_bound,['f','c','c'],restot,resmax)
-      passed_loc = resmax < small
-      if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: wrong solution of Helmholtz equation in x direction.'
-      passed = passed.and.passed_loc
-      !
-      call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,2),bcvel(:,:,2),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
-                      ['c','f','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC) || defined(_OPENMP)
-      call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
-#endif
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel     loop collapse(3) default(present)
-      !$omp target teams loop collapse(3)
-      do k=0,n(3)+1
-        do j=0,n(2)+1
-          do i=0,n(1)+1
-            p(i,j,k) = v(i,j,k)
-          end do
-        end do
-      end do
-      !$acc parallel     loop default(present)
-      !$omp target teams loop
-      do k=1,n_z(3)
-        bb(k) = b(k) + alphai
-      end do
-      call updt_rhs_b(['c','f','c'],cbcvel(:,:,2),n,is_bound,rhsbx,rhsby,rhsbz,v,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
-                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,2),['c','f','c'],v)
-      call fftend(arrplan)
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `v`
-      call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,v,cbcvel(:,:,2),is_bound,['c','f','c'],restot,resmax)
-      passed_loc = resmax < small
-      if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: wrong solution of Helmholtz equation in y direction.'
-      passed = passed.and.passed_loc
-      !
-      call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
-                      cbcvel(:,:,3),bcvel(:,:,3),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
-                      ['c','c','f'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
-      !$acc        update device(lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-      !$omp target update to(    lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-#if defined(_OPENACC) || defined(_OPENMP)
-      call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
-#endif
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
-      !$acc parallel     loop collapse(3) default(present)
-      !$omp target teams loop collapse(3)
-      do k=0,n(3)+1
-        do j=0,n(2)+1
-          do i=0,n(1)+1
-            p(i,j,k) = w(i,j,k)
-          end do
-        end do
-      end do
-      !$acc parallel     loop default(present)
-      !$omp target teams loop
-      do k=1,n_z(3)
-        bb(k) = b(k) + alphai
-      end do
-      call updt_rhs_b(['c','c','f'],cbcvel(:,:,3),n,is_bound,rhsbx,rhsby,rhsbz,w,alpha)
-      call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:))*alphai,lambdaxy, &
-                  eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbcvel(:,:,3),['c','c','f'],w)
-      call fftend(arrplan)
-      call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w) ! actually, we are only interested in the boundary condition in `w`
-      call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,w,cbcvel(:,:,3),is_bound,['c','c','f'],restot,resmax)
-      passed_loc = resmax < small
-      if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: wrong solution of Helmholtz equation in z direction.'
-      passed = passed.and.passed_loc
-      !$acc        exit data delete(    bb)
-      !$omp target exit data map(delete:bb)
     end if
-    !$acc        exit data delete(    u,v,w,p,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
-    !$omp target exit data map(delete:u,v,w,p,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$acc        exit data delete(    u,v,w,p,phi,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
+    !$omp target exit data map(delete:u,v,w,p,phi,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
     if(.not.passed) then
       call decomp_2d_finalize
       call MPI_FINALIZE(ierr)

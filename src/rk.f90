@@ -530,16 +530,16 @@ module mod_rk
   end subroutine cmpt_bulk_forcing
   !
   subroutine bulk_forcing_wall_shear(irk,rkpar,dt,n,ng,lo,l,dxci,dxfi,dyci,dyfi,dzci,dzfi, &
-                                     dxc,dxf,dyc,dyf,dzc,dzf,dzci_g,dzfi_g,visc,is_bound,is_forced,velf,bforce, &
-                                     tau,tauo,u,v,w,f)
+                                     dxc,dxf,dyc,dyf,dzc,dzf,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+                                     visc,is_bound,is_forced,velf,bforce,tau,tauo,u,v,w,f)
     !
     ! bulk forcing that balances exactly the wall shear over a Runge-Kutta substage
     ! (zero net acceleration)
     !
     ! walls with explicit diffusion use the stresses of this and of the previous substage with the
-    ! Runge-Kutta weights, and walls along z with implicit diffusion the stresses before and after
-    ! the implicit step, with the forcing applied as f*g(z), (1 + alpha*lap_z) g = 1, i.e., as if
-    ! it were added before the implicit step
+    ! Runge-Kutta weights, and walls with implicit diffusion the stresses before and after the
+    ! implicit step, with the forcing applied as f*g, (1 + alpha*lap_W) g = 1 along the wall-bounded
+    ! directions W with implicit diffusion, i.e., as if it were added before the implicit step
     !
     ! for expert use, `relax_time > 0` makes the bulk velocity relax towards `velf` over this time scale,
     ! which can counter a slow drift of the bulk velocity due to round-off errors, at the cost of one
@@ -555,7 +555,8 @@ module mod_rk
     integer , intent(in   ), dimension(3)        :: n,ng,lo
     real(rp), intent(in   ), dimension(3)        :: l
     real(rp), intent(in   ), dimension(0:)       :: dxci,dxfi,dyci,dyfi,dzci,dzfi
-    real(rp), intent(in   ), dimension(0:)       :: dxc,dxf,dyc,dyf,dzc,dzf,dzci_g,dzfi_g
+    real(rp), intent(in   ), dimension(0:)       :: dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(in   ), dimension(0:)       :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     real(rp), intent(in   )                      :: visc
     logical , intent(in   ), dimension(0:1,3)    :: is_bound
     logical , intent(in   ), dimension(3)        :: is_forced
@@ -565,16 +566,16 @@ module mod_rk
     real(rp), intent(out  ), dimension(3)        :: f
     real(rp), dimension(3), save :: ubulk
     logical , save :: is_ubulk = .false.
-    real(rp), allocatable, dimension(:,:), save :: gg
+    real(rp), allocatable, dimension(:,:,:,:), save :: gg
     real(rp), dimension(3), save :: alpha_s = huge(1._rp)
     real(rp), dimension(3), save :: gmean_s
-    real(rp), dimension(ng(3)) :: aa,bb,cc,g
     real(rp), dimension(0:1,3,3) :: tau_i
     real(rp), dimension(3,3) :: tw,two
     real(rp), dimension(3) :: db
-    real(rp) :: factor1,factor2,factor12,alpha,m
-    logical  :: is_impdiff_z
-    integer  :: k,idir
+    real(rp), dimension(0:1) :: dr
+    real(rp) :: factor1,factor2,factor12,alpha
+    logical , dimension(3) :: is_w
+    integer :: idir,ib
     !
     ! time-step factors as in `rk`
     !
@@ -586,9 +587,17 @@ module mod_rk
     do idir=1,3
       tw(:,idir) = sum(tau(:,:,idir),1)/l(:); two(:,idir) = sum(tauo(:,:,idir),1)/l(:)
     end do
-    is_impdiff_z = impdiff_mode /= impdiff_explicit.and.cbcpre(0,3)//cbcpre(1,3) /= 'PP'
+    !
+    ! wall-bounded directions with implicit diffusion
+    !
+    is_w(:) = [impdiff_mode == impdiff_xyz, &
+               impdiff_mode == impdiff_yz.or.impdiff_mode == impdiff_xyz, &
+               impdiff_mode /= impdiff_explicit]
+    do idir=1,3
+      is_w(idir) = is_w(idir).and.cbcpre(0,idir)//cbcpre(1,idir) /= 'PP'
+    end do
     f(:) = 0.
-    if(.not.is_impdiff_z) then
+    if(.not.any(is_w)) then
       do idir=1,3
         if(.not.is_forced(idir)) cycle
         f(idir) = db(idir) - factor12*bforce(idir) + (factor1*sum(tw(:,idir)) + factor2*sum(two(:,idir)))
@@ -596,56 +605,47 @@ module mod_rk
       call bulk_forcing(n,is_forced,f,u,v,w)
     else
       if(.not.allocated(gg)) then
-        allocate(gg(n(3),3))
+        allocate(gg(merge(n(1),1,is_w(1)),merge(n(2),1,is_w(2)),merge(n(3),1,is_w(3)),3))
         !$acc enter data create(gg)
       end if
       alpha = -.5*visc*(sum(rkpar(:))*dt) ! as in the main program
       if(abs(alpha-alpha_s(irk)) > 0.) then
         alpha_s(irk) = alpha
-        !
-        ! response to a uniform unit forcing, (1 + alpha*lap_z) g = 1, solved on the global grid
-        !
-        do k=1,ng(3)
-          aa(k) = alpha*dzfi_g(k)*dzci_g(k-1)
-          cc(k) = alpha*dzfi_g(k)*dzci_g(k  )
-          bb(k) = 1. - aa(k) - cc(k)
-        end do
-        bb(1)     = bb(1)     - aa(1)     ! homogeneous Dirichlet: ghost value = -(first interior value)
-        bb(ng(3)) = bb(ng(3)) - cc(ng(3))
-        g(:) = 1.
-        do k=2,ng(3)
-          m     = aa(k)/bb(k-1)
-          bb(k) = bb(k) - m*cc(k-1)
-          g(k)  = g(k)  - m*g(k-1)
-        end do
-        g(ng(3)) = g(ng(3))/bb(ng(3))
-        do k=ng(3)-1,1,-1
-          g(k) = (g(k) - cc(k)*g(k+1))/bb(k)
-        end do
-        gmean_s(irk) = sum(g(:)/dzfi_g(1:ng(3)))/l(3)
-        gg(1:n(3),irk) = g(lo(3):lo(3)-1+n(3))
-        !$acc update device(gg(:,irk)) async(1)
+        call cmpt_unit_response(alpha,n,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+                                gg(:,:,:,irk),gmean_s(irk))
+        !$acc update device(gg(:,:,:,irk)) async(1)
       end if
       !
-      ! wall shear along z of the unforced solution, with the ghost values set from the boundary conditions
+      ! wall shear of the unforced solution, with the ghost values set from the boundary conditions
       !
-      if(is_forced(1)) then
-        if(is_bound(0,3)) call set_bc(cbcvel(0,3,1),0,3,1,.true.,bcvel(0,3,1),dzc(0)   ,u)
-        if(is_bound(1,3)) call set_bc(cbcvel(1,3,1),1,3,1,.true.,bcvel(1,3,1),dzc(n(3)),u)
-      end if
-      if(is_forced(2)) then
-        if(is_bound(0,3)) call set_bc(cbcvel(0,3,2),0,3,1,.true.,bcvel(0,3,2),dzc(0)   ,v)
-        if(is_bound(1,3)) call set_bc(cbcvel(1,3,2),1,3,1,.true.,bcvel(1,3,2),dzc(n(3)),v)
-      end if
+      do idir=1,3
+        if(.not.is_w(idir)) cycle
+        select case(idir)
+        case(1)
+          dr(:) = [dxc(0),dxc(n(1))]
+        case(2)
+          dr(:) = [dyc(0),dyc(n(2))]
+        case(3)
+          dr(:) = [dzc(0),dzc(n(3))]
+        end select
+        do ib=0,1
+          if(.not.is_bound(ib,idir)) cycle
+          if(is_forced(1)) call set_bc(cbcvel(ib,idir,1),ib,idir,1,.true.,bcvel(ib,idir,1),dr(ib),u)
+          if(is_forced(2)) call set_bc(cbcvel(ib,idir,2),ib,idir,1,.true.,bcvel(ib,idir,2),dr(ib),v)
+          if(is_forced(3)) call set_bc(cbcvel(ib,idir,3),ib,idir,1,.true.,bcvel(ib,idir,3),dr(ib),w)
+        end do
+      end do
       call cmpt_wallshear(n,is_forced,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
                           tau_i(:,:,1),tau_i(:,:,2),tau_i(:,:,3))
       do idir=1,3
         if(.not.is_forced(idir)) cycle
-        f(idir) = (db(idir) - factor12*bforce(idir) + (factor1*sum(tw(1:2,idir)) + factor2*sum(two(1:2,idir))) &
-                   + .5*factor12*(tw(3,idir) + sum(tau_i(:,3,idir))/l(3)))/gmean_s(irk)
+        f(idir) = (db(idir) - factor12*bforce(idir) + &
+                   sum(merge(.5*factor12*(tw(:,idir) + sum(tau_i(:,:,idir),1)/l(:)), &
+                             factor1*tw(:,idir) + factor2*two(:,idir),is_w(:))))/gmean_s(irk)
       end do
-      if(is_forced(1)) call add_profile_z(n,f(1),gg(:,irk),u)
-      if(is_forced(2)) call add_profile_z(n,f(2),gg(:,irk),v)
+      if(is_forced(1)) call add_response(n,f(1),gg(:,:,:,irk),u)
+      if(is_forced(2)) call add_response(n,f(2),gg(:,:,:,irk),v)
+      if(is_forced(3)) call add_response(n,f(3),gg(:,:,:,irk),w)
     end if
     if(relax_time > 0..and.irk == 3) then
       if(is_forced(1)) call bulk_mean(n,l,dxc,dyf,dzf,u,ubulk(1))
@@ -654,22 +654,118 @@ module mod_rk
       is_ubulk = .true.
     end if
   contains
-    subroutine add_profile_z(n,ff,gg,p)
+    subroutine add_response(n,ff,gg,p)
       implicit none
       integer , intent(in   ), dimension(3)        :: n
       real(rp), intent(in   )                      :: ff
-      real(rp), intent(in   ), dimension(:)        :: gg
+      real(rp), intent(in   ), dimension(:,:,:)    :: gg
       real(rp), intent(inout), dimension(0:,0:,0:) :: p
-      integer :: i,j,k
+      integer :: i,j,k,ni,nj,nk
+      !
+      ! `gg` has extent 1 along the directions where the response is uniform
+      !
+      ni = size(gg,1); nj = size(gg,2); nk = size(gg,3)
       !$acc parallel loop collapse(3) default(present) async(1)
       !$OMP PARALLEL DO   COLLAPSE(3) DEFAULT(shared)
       do k=1,n(3)
         do j=1,n(2)
           do i=1,n(1)
-            p(i,j,k) = p(i,j,k) + ff*gg(k)
+            p(i,j,k) = p(i,j,k) + ff*gg(min(i,ni),min(j,nj),min(k,nk))
           end do
         end do
       end do
-    end subroutine add_profile_z
+    end subroutine add_response
   end subroutine bulk_forcing_wall_shear
+  !
+  subroutine cmpt_unit_response(alpha,n,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,g,gmean)
+    !
+    ! response to a uniform unit forcing, (1 + alpha*lap_W) g = 1, with homogeneous Dirichlet conditions
+    ! along the directions W where `is_w` is true (one or two), solved on the global grid; returns the
+    ! local part of g, with extent 1 along the other directions, and its volume average `gmean`
+    !
+    ! with two directions, the first is diagonalized (once, as the operator does not depend on alpha)
+    ! and a tridiagonal system is solved along the second for each eigenvalue
+    !
+    use mod_initsolver, only: init_eigendecomp_axis,tridmatrix
+    use mod_linalg    , only: gemm
+    implicit none
+    real(rp), intent(in ) :: alpha
+    integer , intent(in ), dimension(3)     :: n,ng,lo
+    real(rp), intent(in ), dimension(3)     :: l
+    logical , intent(in ), dimension(3)     :: is_w
+    real(rp), intent(in ), dimension(0:)    :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
+    real(rp), intent(out), dimension(:,:,:) :: g
+    real(rp), intent(out)                   :: gmean
+    real(rp), allocatable, dimension(:)  , save :: lambda_a,r_a,s_a
+    real(rp), allocatable, dimension(:,:), save :: vbwd_a
+    real(rp), allocatable, dimension(:)   :: dci_a,dfi_a,dci_b,dfi_b,a,b,c,gl
+    real(rp), allocatable, dimension(:,:) :: vfwd,vbwd,gh,gp
+    integer , allocatable, dimension(:)   :: iw
+    integer :: ia,ib,na,nb,m
+    !
+    iw = pack([1,2,3],is_w)
+    ia = iw(1); na = ng(ia)
+    call grid_g(ia,dci_a,dfi_a)
+    if(size(iw) == 1) then
+      allocate(a(na),b(na),c(na),gl(na))
+      call tridmatrix(['D','D'],na,dci_a,dfi_a,'c',.false.,a,b,c)
+      gl(:) = 1.
+      call solve_tridiag(alpha*a,1.+alpha*b,alpha*c,gl)
+      gmean = sum(gl(:)/dfi_a(1:na))/l(ia)
+      g(:,:,:) = reshape(gl(lo(ia):lo(ia)-1+n(ia)),shape(g))
+    else
+      ib = iw(2); nb = ng(ib)
+      call grid_g(ib,dci_b,dfi_b)
+      if(.not.allocated(lambda_a)) then
+        allocate(lambda_a(na),r_a(na),s_a(na),vfwd(na,na),vbwd(na,na))
+        call init_eigendecomp_axis(na,dci_a,dfi_a,1./dci_a,1./dfi_a,['D','D'],'c',lambda_a,vfwd,vbwd)
+        r_a(:) = sum(vfwd(:,:),2)
+        s_a(:) = matmul(1./dfi_a(1:na),vbwd(:,:))
+        vbwd_a = vbwd(lo(ia):lo(ia)-1+n(ia),:)
+      end if
+      allocate(a(nb),b(nb),c(nb),gh(nb,na),gp(n(ia),n(ib)))
+      call tridmatrix(['D','D'],nb,dci_b,dfi_b,'c',.false.,a,b,c)
+      do m=1,na
+        gh(:,m) = r_a(m)
+        call solve_tridiag(alpha*a,1.+alpha*(b+lambda_a(m)),alpha*c,gh(:,m))
+      end do
+      gmean = sum(s_a(:)*matmul(1./dfi_b(1:nb),gh(:,:)))/(l(ia)*l(ib))
+      call gemm('N','T',n(ia),n(ib),na,1._rp,vbwd_a,n(ia),gh(lo(ib):lo(ib)-1+n(ib),:),n(ib),0._rp,gp,n(ia))
+      g(:,:,:) = reshape(gp,shape(g))
+    end if
+  contains
+    subroutine grid_g(idir,dci,dfi)
+      implicit none
+      integer , intent(in) :: idir
+      real(rp), intent(out), allocatable, dimension(:) :: dci,dfi
+      select case(idir)
+      case(1)
+        dci = dxci_g; dfi = dxfi_g
+      case(2)
+        dci = dyci_g; dfi = dyfi_g
+      case(3)
+        dci = dzci_g; dfi = dzfi_g
+      end select
+    end subroutine grid_g
+    subroutine solve_tridiag(a,b,c,p)
+      implicit none
+      real(rp), intent(in   ), dimension(:) :: a,b,c
+      real(rp), intent(inout), dimension(:) :: p
+      real(rp), dimension(size(p)) :: d
+      real(rp) :: z
+      integer :: k,nn
+      nn = size(p)
+      z = 1._rp/b(1)
+      d(1) = c(1)*z
+      p(1) = p(1)*z
+      do k=2,nn
+        z = 1._rp/(b(k) - a(k)*d(k-1))
+        d(k) = c(k)*z
+        p(k) = (p(k) - a(k)*p(k-1))*z
+      end do
+      do k=nn-1,1,-1
+        p(k) = p(k) - d(k)*p(k+1)
+      end do
+    end subroutine solve_tridiag
+  end subroutine cmpt_unit_response
 end module mod_rk

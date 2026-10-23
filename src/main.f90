@@ -598,8 +598,8 @@ program cans
       end if
       if(is_bulk_forcing_wall_shear) then
         call bulk_forcing_wall_shear(irk,rkcoeff(:,irk),dt,n,ng,lo,l,dxci,dxfi,dyci,dyfi,dzci,dzfi, &
-                                     dxc,dxf,dyc,dyf,dzc,dzf,dzci_g,dzfi_g,visc,is_bound,is_forced,velf,bforce, &
-                                     tau,tauo,u,v,w,f)
+                                     dxc,dxf,dyc,dyf,dzc,dzf,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+                                     visc,is_bound,is_forced,velf,bforce,tau,tauo,u,v,w,f)
       end if
       dpdl(:) = dpdl(:) + f(:)
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)

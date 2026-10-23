@@ -11,7 +11,7 @@ module mod_initsolver
   use mod_types
   implicit none
   private
-  public initsolver
+  public initsolver,init_eigendecomp_axis,tridmatrix
   contains
   subroutine initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,cbc,bc, &
                         lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,c_or_f,a,b,c,arrplan,normfft, &

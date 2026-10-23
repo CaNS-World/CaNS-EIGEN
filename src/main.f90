@@ -273,8 +273,8 @@ program cans
   call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3),is_gridpoint_natural_channel(3))
   if(myid == 0) then
     open(newunit=iunit,file=trim(datadir)//'geometry.out',status='replace')
-    write(iunit,*) ng(1),ng(2),ng(3)
-    write(iunit,*) l(1),l(2),l(3)
+    write(iunit,'(*(1x,i0))') ng(1),ng(2),ng(3)
+    write(iunit,'(*(1x,es24.16e3))') l(1),l(2),l(3)
     close(iunit)
     call save_grid(datadir,'grid_x',ng(1),xc_g,xf_g,dxc_g,dxf_g)
     call save_grid(datadir,'grid_y',ng(2),yc_g,yf_g,dyc_g,dyf_g)

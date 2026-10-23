@@ -707,6 +707,10 @@ module mod_mom
   end subroutine momz_d_xy
   !
   subroutine cmpt_wallshear(n,is_cmpt,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,taux,tauy,tauz)
+    !
+    ! wall shear stresses of the velocity components where `is_cmpt` is true, averaged over each
+    ! wall; e.g., taux(0:1,idir) for u at the two walls normal to idir (zero along periodic directions)
+    !
     use mod_param, only: cbcpre
     implicit none
     integer , intent(in ), dimension(3) :: n
@@ -723,7 +727,7 @@ module mod_mom
     !
     ! replace scalars with a reduction of tau(1:3,1:3) once the
     ! nvfortran bug for array reductions on Pascal architectures
-    ! is solved; this subroutine is not used in production anyway
+    ! is solved
     !
     real(rp) :: tau21p,tau31p,tau12p,tau32p,tau13p,tau23p, &
                 tau21m,tau31m,tau12m,tau32m,tau13m,tau23m
@@ -743,7 +747,7 @@ module mod_mom
         do k=1,nz
           do i=1,nx
             dudyp  = (u(i,1 ,k)-u(i,0   ,k))*dyci(0)*visc
-            tau21p = tau21p + dudyp/(dxfi(i)*dzfi(k)*lx*lz)
+            tau21p = tau21p + dudyp/(dxci(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -753,7 +757,7 @@ module mod_mom
         do k=1,nz
           do i=1,nx
             dudym  = (u(i,ny,k)-u(i,ny+1,k))*dyci(ny)*visc
-            tau21m = tau21m + dudym/(dxfi(i)*dzfi(k)*lx*lz)
+            tau21m = tau21m + dudym/(dxci(i)*dzfi(k)*lx*lz)
           end do
         end do
       end if
@@ -763,7 +767,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dudzp  = (u(i,j,1 )-u(i,j,0   ))*dzci(0)*visc
-            tau31p = tau31p + dudzp/(dxfi(i)*dyfi(j)*lx*ly)
+            tau31p = tau31p + dudzp/(dxci(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -773,7 +777,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dudzm  = (u(i,j,nz)-u(i,j,nz+1))*dzci(nz)*visc
-            tau31m = tau31m + dudzm/(dxfi(i)*dyfi(j)*lx*ly)
+            tau31m = tau31m + dudzm/(dxci(i)*dyfi(j)*lx*ly)
           end do
         end do
       end if
@@ -790,7 +794,7 @@ module mod_mom
         do k=1,nz
           do j=1,ny
             dvdxp  = (v(1  ,j,k)-v(0  ,j,k))*dxci(0)*visc
-            tau12p = tau12p + dvdxp/(dyfi(j)*dzfi(k)*ly*lz)
+            tau12p = tau12p + dvdxp/(dyci(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -800,7 +804,7 @@ module mod_mom
         do k=1,nz
           do j=1,ny
             dvdxm  = (v(nx,j,k)-v(nx+1,j,k))*dxci(nx)*visc
-            tau12m = tau12m + dvdxm/(dyfi(j)*dzfi(k)*ly*lz)
+            tau12m = tau12m + dvdxm/(dyci(j)*dzfi(k)*ly*lz)
           end do
         end do
       end if
@@ -810,7 +814,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dvdzp  = (v(i,j,1 )-v(i,j,0   ))*dzci(0)*visc
-            tau32p = tau32p + dvdzp/(dxfi(i)*dyfi(j)*lx*ly)
+            tau32p = tau32p + dvdzp/(dxfi(i)*dyci(j)*lx*ly)
           end do
         end do
       end if
@@ -820,7 +824,7 @@ module mod_mom
         do j=1,ny
           do i=1,nx
             dvdzm  = (v(i,j,nz)-v(i,j,nz+1))*dzci(nz)*visc
-            tau32m = tau32m + dvdzm/(dxfi(i)*dyfi(j)*lx*ly)
+            tau32m = tau32m + dvdzm/(dxfi(i)*dyci(j)*lx*ly)
           end do
         end do
       end if
@@ -837,7 +841,7 @@ module mod_mom
         do k=1,nz
           do j=1,ny
             dwdxp  = (w(1 ,j,k)-w(0   ,j,k))*dxci(0)*visc
-            tau13p = tau13p + dwdxp/(dyfi(j)*dzfi(k)*ly*lz)
+            tau13p = tau13p + dwdxp/(dyfi(j)*dzci(k)*ly*lz)
           end do
         end do
       end if
@@ -847,7 +851,7 @@ module mod_mom
         do k=1,nz
           do j=1,ny
             dwdxm  = (w(nx,j,k)-w(nx+1,j,k))*dxci(nx)*visc
-            tau13m = tau13m + dwdxm/(dyfi(j)*dzfi(k)*ly*lz)
+            tau13m = tau13m + dwdxm/(dyfi(j)*dzci(k)*ly*lz)
           end do
         end do
       end if
@@ -857,7 +861,7 @@ module mod_mom
         do k=1,nz
           do i=1,nx
             dwdyp  = (w(i,1,k )-w(i,0   ,k))*dyci(0)*visc
-            tau23p = tau23p + dwdyp/(dxfi(i)*dzfi(k)*lx*lz)
+            tau23p = tau23p + dwdyp/(dxfi(i)*dzci(k)*lx*lz)
           end do
         end do
       end if
@@ -867,7 +871,7 @@ module mod_mom
         do k=1,nz
           do i=1,nx
             dwdym  = (w(i,ny,k)-w(i,ny+1,k))*dyci(ny)*visc
-            tau23m = tau23m + dwdym/(dxfi(i)*dzfi(k)*lx*lz)
+            tau23m = tau23m + dwdym/(dxfi(i)*dzci(k)*lx*lz)
           end do
         end do
       end if

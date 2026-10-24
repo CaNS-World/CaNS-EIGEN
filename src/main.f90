@@ -593,7 +593,7 @@ program cans
       call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbp%x,rhsbp%y,rhsbp%z,pp)
       call solver(n,ng,is_poisson_fft,arrplanp,product(normfftp(:)), &
                   lambdaxyp,eigvecxp_fwd,eigvecxp_bwd,eigvecyp_fwd,eigvecyp_bwd, &
-                  ap,bp,cp,cbcpre,['c','c','c'],pp,is_dtdma_update_p,ap_d,cp_d)
+                  ap,bp,cp,cbcpre,['c','c','c'],pp,is_dtdma_update_p,ap_d,cp_d,impdiff_mode == impdiff_explicit)
       call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,pp)
       call correc(n,dxci,dyci,dzci,dtrk,pp,u,v,w)
       call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)

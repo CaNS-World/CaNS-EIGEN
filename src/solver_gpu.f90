@@ -7,10 +7,12 @@
 module mod_solver_gpu
 #if defined(_OPENACC)
   use, intrinsic :: iso_c_binding, only: C_PTR
-#if !defined(_USE_DIEZDECOMP)
-  use cudecomp
-#else
+#if defined(_USE_DIEZDECOMP)
   use diezdecomp
+#elif defined(_USE_HIP)
+  use hipdecomp
+#else
+  use cudecomp
 #endif
   use mod_common_cudecomp, only: dtype_rp => cudecomp_real_rp, &
                                  cudecomp_is_t_in_place, &
@@ -28,7 +30,7 @@ module mod_solver_gpu
                                  gh => gemm_handle
   use mod_fft            , only: fft_gpu,fft_gpu_layout
   use mod_param          , only: ipencil_axis,is_poisson_dtdma, &
-                                 is_use_diezdecomp,is_diezdecomp_x2z_z2x_transposes
+                                 is_diezdecomp_x2z_z2x_transposes
 #if !defined(_USE_HIP)
 #if !defined(_SINGLE_PRECISION)
   use cublas         , only: gemm => cublasDgemm_v2, &

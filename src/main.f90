@@ -43,7 +43,8 @@ program cans
   use mod_initsolver     , only: initsolver
   use mod_load           , only: load_one
   use mod_rk             , only: rk,rk_scal
-  use mod_output         , only: out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d
+  use mod_output         , only: is_output_due, &
+                                 out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d
   use mod_param          , only: ng,l, &
                                  gtype,gr, &
                                  is_gridpoint_natural_channel, &
@@ -53,6 +54,7 @@ program cans
                                  nstep,time_max,tw_max,stop_type, &
                                  restart,is_overwrite_save,nsaves_max, &
                                  icheck,iout0d,iout1d,iout2d,iout3d,isave, &
+                                 tout0d,tout1d,tout2d,tout3d,tsave, &
                                  cbcvel,bcvel,cbcpre,bcpre, &
                                  is_forced,bforce,velf, &
                                  gacc,nscal,beta, &
@@ -77,6 +79,7 @@ program cans
   use mod_common_cudecomp, only: istream_acc_queue_1,ap_z_dtdma
 #endif
   use mod_updatep        , only: updatep
+  use mod_posix          , only: rename_file,read_link
   use mod_utils          , only: bulk_mean
 #if defined(_OPENACC)
   use mod_utils          , only: device_memory_footprint
@@ -118,7 +121,7 @@ program cans
   real(rp), dimension(2) :: normfftu,normfftv,normfftw
   type(rhs_bound) :: rhsbu,rhsbv,rhsbw
   !
-  real(rp) :: dt,dti,dt_cfl,time,dtrk,dtrki,divtot,divmax
+  real(rp) :: dt,dti,dt_cfl,time,time_start,dtrk,dtrki,divtot,divmax
   integer :: irk,istep,iunit
   real(rp), allocatable, dimension(:) :: dxc  ,dxf  ,xc  ,xf  ,dxci  ,dxfi, &
                                          dxc_g,dxf_g,xc_g,xf_g,dxci_g,dxfi_g, &
@@ -140,13 +143,16 @@ program cans
   real(rp), dimension(42) :: var
   !
   real(rp) :: dt12,dt12av,dt12min,dt12max
-  real(rp) :: twi,tw
+  real(dp) :: twi,tw
   !
   integer  :: savecounter
   character(len=7  ) :: fldnum
   character(len=3  ) :: scalnum
   character(len=4  ) :: chkptnum
   character(len=100) :: filename
+  character(len=256) :: fname_save
+  logical :: is_save_tmp
+  integer :: istat
   type :: arr_ptr
     real(rp), pointer, contiguous , dimension(:,:,:) :: arr
   end type arr_ptr
@@ -273,8 +279,8 @@ program cans
   call initgrid(gtype(3),ng(3),gr(3),l(3),dzc_g,dzf_g,zc_g,zf_g,is_periodic(3),is_gridpoint_natural_channel(3))
   if(myid == 0) then
     open(newunit=iunit,file=trim(datadir)//'geometry.out',status='replace')
-    write(iunit,*) ng(1),ng(2),ng(3)
-    write(iunit,*) l(1),l(2),l(3)
+    write(iunit,'(*(1x,i0))') ng(1),ng(2),ng(3)
+    write(iunit,'(*(1x,es24.16e3))') l(1),l(2),l(3)
     close(iunit)
     call save_grid(datadir,'grid_x',ng(1),xc_g,xf_g,dxc_g,dxf_g)
     call save_grid(datadir,'grid_y',ng(2),yc_g,yf_g,dyc_g,dyf_g)
@@ -488,9 +494,18 @@ program cans
   else
     do is=1,4+nscal
       call load_one('r',trim(datadir)//'fld_'//trim(c_io_vars(is))//trim(io_ext), &
-                    MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep)
+                    MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep, &
+                    is_check_time=is > 1)
     end do
     if(myid == 0) print*, '*** Checkpoint loaded at time = ', time, 'time step = ', istep, '. ***'
+    if(is_overwrite_save.and.nsaves_max > 0) then
+      if(myid == 0) then
+        istat = read_link(trim(datadir)//'fld_'//trim(c_io_vars(1))//trim(io_ext),fname_save)
+        if(istat == 0) read(fname_save(5:8),'(i4)',iostat=istat) savecounter
+        if(istat /= 0) savecounter = 0
+      end if
+      call MPI_BCAST(savecounter,1,MPI_INTEGER,0,MPI_COMM_WORLD,ierr)
+    end if
   end if
   !$acc enter data copyin(u,v,w,p,pp,dudtrko,dvdtrko,dwdtrko)
   call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,restart)
@@ -510,13 +525,13 @@ program cans
   do iscal=1,nscal
     !$acc update self(scalars(iscal)%val)
   end do
-  if(iout1d > 0.and.mod(istep,max(iout1d,1)) == 0) then
+  if(is_output_due(istep,iout1d,tout1d,time,time,restart)) then
     include 'out1d.h90'
   end if
-  if(iout2d > 0.and.mod(istep,max(iout2d,1)) == 0) then
+  if(is_output_due(istep,iout2d,tout2d,time,time,restart)) then
     include 'out2d.h90'
   end if
-  if(iout3d > 0.and.mod(istep,max(iout3d,1)) == 0) then
+  if(is_output_due(istep,iout3d,tout3d,time,time,restart)) then
     include 'out3d.h90'
   end if
   !
@@ -536,6 +551,7 @@ program cans
       dt12 = MPI_WTIME()
     end if
     istep = istep + 1
+    time_start = time
     time = time + dt
     if(myid == 0) print*, 'Time step #', istep, 'Time = ', time
     tauxo(:,:) = 0.; tauyo(:,:) = 0.; tauzo(:,:) = 0.
@@ -597,6 +613,7 @@ program cans
     end if
     if(stop_type(3)) then ! maximum wall-clock time reached
       tw = (MPI_WTIME()-twi)/3600.
+      call MPI_ALLREDUCE(MPI_IN_PLACE,tw,1,MPI_DOUBLE_PRECISION,MPI_MAX,MPI_COMM_WORLD,ierr)
       if(tw    >= tw_max  ) is_done = is_done.or..true.
     end if
     if(icheck > 0.and.mod(istep,max(icheck,1)) == 0) then
@@ -604,28 +621,20 @@ program cans
       call chkdt(n,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,alpha_max,u,v,w,dt_cfl)
       dt = merge(dt_f,min(cfl*dt_cfl,dtmax),dt_f > 0.)
       if(myid == 0) print*, 'dt_cfl = ', dt_cfl, 'dt = ', dt
-      if(dt_cfl < small) then
-        if(myid == 0) print*, 'ERROR: time step is too small.'
-        if(myid == 0) print*, 'Aborting...'
-        is_done = .true.
-        kill = .true.
-      end if
       dti = 1./dt
       call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
       if(myid == 0) print*, 'Velocity divergence norms: Mean = ', divtot, '| Maximum = ', divmax
-      if(.not.is_mask_divergence_check) then
-        if(divmax > small.or.is_nan(divtot)) then
-          if(myid == 0) print*, 'ERROR: maximum divergence is too large.'
-          if(myid == 0) print*, 'Aborting...'
-          is_done = .true.
-          kill = .true.
-        end if
+      if((divmax > small.and..not.is_mask_divergence_check).or.is_nan(divtot)) then
+        if(myid == 0) print*, 'ERROR: maximum divergence is too large.'
+        if(myid == 0) print*, 'Aborting...'
+        is_done = .true.
+        kill = .true.
       end if
     end if
     !
     ! output routines below
     !
-    if(iout0d > 0.and.mod(istep,max(iout0d,1)) == 0) then
+    if(is_output_due(istep,iout0d,tout0d,time_start,time)) then
       !allocate(var(4))
       var(1) = 1.*istep
       var(2) = dt
@@ -665,7 +674,7 @@ program cans
       end do
     end if
     write(fldnum,'(i7.7)') istep
-    if(iout1d > 0.and.mod(istep,max(iout1d,1)) == 0) then
+    if(is_output_due(istep,iout1d,tout1d,time_start,time)) then
       !$acc wait
       !$acc update self(u,v,w,p)
       do iscal=1,nscal
@@ -673,7 +682,7 @@ program cans
       end do
       include 'out1d.h90'
     end if
-    if(iout2d > 0.and.mod(istep,max(iout2d,1)) == 0) then
+    if(is_output_due(istep,iout2d,tout2d,time_start,time)) then
       !$acc wait
       !$acc update self(u,v,w,p)
       do iscal=1,nscal
@@ -681,7 +690,7 @@ program cans
       end do
       include 'out2d.h90'
     end if
-    if(iout3d > 0.and.mod(istep,max(iout3d,1)) == 0) then
+    if(is_output_due(istep,iout3d,tout3d,time_start,time)) then
       !$acc wait
       !$acc update self(u,v,w,p)
       do iscal=1,nscal
@@ -689,7 +698,7 @@ program cans
       end do
       include 'out3d.h90'
     end if
-    if(isave > 0.and.((mod(istep,max(isave,1)) == 0).or.(is_done.and..not.kill))) then
+    if((isave > 0.or.tsave > 0.).and.(.not.kill).and.(is_output_due(istep,isave,tsave,time_start,time).or.is_done)) then
       if(is_overwrite_save.and.nsaves_max <= 0) then
         filename = 'fld'
       else
@@ -699,10 +708,6 @@ program cans
           savecounter = savecounter + 1
           write(chkptnum,'(i4.4)') savecounter
           filename = 'fld_'//chkptnum
-          var(1) = 1.*istep
-          var(2) = time
-          var(3) = 1.*savecounter
-          call out0d(trim(datadir)//'log_checkpoints.out',3,var)
         end if
       end if
       !$acc wait
@@ -710,26 +715,39 @@ program cans
       do iscal=1,nscal
         !$acc update self(scalars(iscal)%val)
       end do
+      is_save_tmp = trim(io_ext) /= '.bp'
       do is=1,4+nscal
+        fname_save = trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext)
+        if(is_save_tmp) fname_save = trim(datadir)//'fld_'//trim(c_io_vars(is))//'.tmp'//trim(io_ext)
         select case(trim(c_io_vars(is)))
         case('u')
-          call load_one('w',trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext), &
+          call load_one('w',trim(fname_save), &
                         MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep, &
                         xf_g,yc_g,zc_g)
         case('v')
-          call load_one('w',trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext), &
+          call load_one('w',trim(fname_save), &
                         MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep, &
                         xc_g,yf_g,zc_g)
         case('w')
-          call load_one('w',trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext), &
+          call load_one('w',trim(fname_save), &
                         MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep, &
                         xc_g,yc_g,zf_g)
         case default
-          call load_one('w',trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext), &
+          call load_one('w',trim(fname_save), &
                         MPI_COMM_WORLD,ng,[1,1,1],lo,hi,io_vars(is)%arr,trim(c_io_vars(is)),time,istep, &
                         xc_g,yc_g,zc_g)
         end select
       end do
+      if(is_save_tmp) then
+        call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+        if(myid == 0) then
+          do is=1,4+nscal
+            istat = rename_file(trim(datadir)//'fld_'//trim(c_io_vars(is))//'.tmp'//trim(io_ext), &
+                                trim(datadir)//trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext))
+            if(istat /= 0) print*, 'WARNING: could not rename the temporary checkpoint file of ', trim(c_io_vars(is)), '.'
+          end do
+        end if
+      end if
       if(.not.is_overwrite_save.or.nsaves_max > 0) then
         !
         ! fld_*.<ext> -> last checkpoint file (symbolic link)
@@ -738,6 +756,12 @@ program cans
           call gen_alias(myid,trim(datadir),trim(filename)//'_'//trim(c_io_vars(is))//trim(io_ext), &
                          'fld_'//trim(c_io_vars(is))//trim(io_ext))
         end do
+      end if
+      if(is_overwrite_save.and.nsaves_max > 0) then
+        var(1) = 1.*istep
+        var(2) = time
+        var(3) = 1.*savecounter
+        call out0d(trim(datadir)//'log_checkpoints.out',3,var)
       end if
       if(myid == 0) print*, '*** Checkpoint saved at time = ', time, 'time step = ', istep, '. ***'
     end if
@@ -770,4 +794,5 @@ program cans
   call cudecomp_finalize
 #endif
   call MPI_FINALIZE(ierr)
+  if(kill) error stop
 end program cans

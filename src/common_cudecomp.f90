@@ -9,10 +9,12 @@ module mod_common_cudecomp
   use, intrinsic :: iso_c_binding, only: c_ptr
   use mod_types
   !@cuf use cudafor
-#if !defined(_USE_DIEZDECOMP)
-  use cudecomp
-#else
+#if defined(_USE_DIEZDECOMP)
   use diezdecomp
+#elif defined(_USE_HIP)
+  use hipdecomp
+#else
+  use cudecomp
 #endif
 #if !defined(_USE_HIP)
   use cublas
@@ -42,12 +44,15 @@ module mod_common_cudecomp
   real(rp), pointer, contiguous, dimension(:) :: work     ,work_cuda
   real(rp), pointer, contiguous, dimension(:) :: work_halo,work_halo_cuda
   real(rp), pointer, contiguous, dimension(:) :: work_dtdma,work_dtdma_cuda
-  !@cuf attributes(device) :: work_cuda,work_halo_cuda
-  !@cuf attributes(device) :: work_halo_cuda,work_dtdma_cuda
+  !@cuf attributes(device) :: work_cuda,work_halo_cuda,work_dtdma_cuda
   real(rp), target, allocatable, dimension(:) :: solver_buf_0,solver_buf_1
   real(rp), allocatable, dimension(:,:,:) :: pz_aux_1,pz_aux_2
   real(rp), target, allocatable, dimension(:) :: gemm_buf_x,gemm_buf_y
+#if defined(_USE_HIP) && !defined(_USE_DIEZDECOMP)
+  type(c_ptr) :: istream_acc_queue_1,istream_acc_queue_1_comm_lib
+#else
   integer(cuda_stream_kind) :: istream_acc_queue_1,istream_acc_queue_1_comm_lib
+#endif
 #if !defined(_USE_HIP)
   type(cublasHandle) :: gemm_handle
 #else

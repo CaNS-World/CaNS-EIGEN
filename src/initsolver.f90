@@ -13,7 +13,7 @@ module mod_initsolver
   private
   public initsolver,init_eigendecomp_axis,tridmatrix
   contains
-  subroutine initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,cbc,bc, &
+  subroutine initsolver(is_poisson_fft,ng,nh,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,cbc,bc, &
                         lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,c_or_f,a,b,c,arrplan,normfft, &
                         rhsbx,rhsby,rhsbz)
     !
@@ -22,7 +22,8 @@ module mod_initsolver
     implicit none
     logical , intent(in), dimension(2) :: is_poisson_fft
     integer , intent(in), dimension(3) :: ng,n_x_fft,n_y_fft,lo_z,hi_z
-    real(rp), intent(in), dimension(0:) :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
+    integer , intent(in)               :: nh
+    real(rp), intent(in), dimension(1-nh:) :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     character(len=1), intent(in), dimension(0:1,3) :: cbc
     real(rp)        , intent(in), dimension(0:1,3) :: bc
     real(rp), intent(out), dimension(:) :: lambdax_g,lambday_g
@@ -41,9 +42,9 @@ module mod_initsolver
     real(rp), intent(out), dimension(:,:,0:) :: rhsbz
     real(rp), intent(out), dimension(2) :: normfft
     real(rp), dimension(2)         :: dl,dli
-    real(rp), dimension(0:ng(1)+1) :: dxc_g,dxf_g
-    real(rp), dimension(0:ng(2)+1) :: dyc_g,dyf_g
-    real(rp), dimension(0:ng(3)+1) :: dzc_g,dzf_g
+    real(rp), dimension(1-nh:ng(1)+nh) :: dxc_g,dxf_g
+    real(rp), dimension(1-nh:ng(2)+nh) :: dyc_g,dyf_g
+    real(rp), dimension(1-nh:ng(3)+nh) :: dzc_g,dzf_g
     integer :: i,j
     real(rp), dimension(ng(3))      :: az_g,bz_g,cz_g
     !
@@ -84,13 +85,13 @@ module mod_initsolver
       call eigenvalues(ng(1),cbc(:,1),c_or_f(1),lambdax_g)
       lambdax_g(:) = lambdax_g(:)*dli(1)**2
     else
-      call init_eigendecomp_axis(ng(1),dxci_g,dxfi_g,dxc_g,dxf_g,cbc(:,1),c_or_f(1),lambdax_g,eigvecx_fwd,eigvecx_bwd)
+      call init_eigendecomp_axis(ng(1),nh,dxci_g,dxfi_g,dxc_g,dxf_g,cbc(:,1),c_or_f(1),lambdax_g,eigvecx_fwd,eigvecx_bwd)
     end if
     if(is_poisson_fft(2)) then
       call eigenvalues(ng(2),cbc(:,2),c_or_f(2),lambday_g)
       lambday_g(:) = lambday_g(:)*dli(2)**2
     else
-      call init_eigendecomp_axis(ng(2),dyci_g,dyfi_g,dyc_g,dyf_g,cbc(:,2),c_or_f(2),lambday_g,eigvecy_fwd,eigvecy_bwd)
+      call init_eigendecomp_axis(ng(2),nh,dyci_g,dyfi_g,dyc_g,dyf_g,cbc(:,2),c_or_f(2),lambday_g,eigvecy_fwd,eigvecy_bwd)
     end if
     !
     ! add eigenvalues
@@ -103,7 +104,7 @@ module mod_initsolver
     !
     ! compute and distribute coefficients for tridiagonal solver
     !
-    call tridmatrix(cbc(:,3),ng(3),dzci_g,dzfi_g,c_or_f(3),.false.,az_g,bz_g,cz_g)
+    call tridmatrix(cbc(:,3),ng(3),nh,dzci_g,dzfi_g,c_or_f(3),.false.,az_g,bz_g,cz_g)
     a(:) = az_g(lo_z(3):hi_z(3))
     b(:) = bz_g(lo_z(3):hi_z(3))
     c(:) = cz_g(lo_z(3):hi_z(3))
@@ -131,7 +132,7 @@ module mod_initsolver
     call fftini(ng,is_poisson_fft,n_x_fft,n_y_fft,cbc(:,1:2),c_or_f(1:2),arrplan,normfft)
   end subroutine initsolver
   !
-  subroutine init_eigendecomp_axis(n,dci_g,dfi_g,dc_g,df_g,cbc,c_or_f,lambda_g,eigvec_fwd,eigvec_bwd)
+  subroutine init_eigendecomp_axis(n,nh,dci_g,dfi_g,dc_g,df_g,cbc,c_or_f,lambda_g,eigvec_fwd,eigvec_bwd)
     !
     ! numerical eigendecomposition along one direction
     !
@@ -139,8 +140,8 @@ module mod_initsolver
     use, intrinsic :: ieee_exceptions, only: ieee_status_type,ieee_get_status,ieee_set_status, &
                                              ieee_set_halting_mode,ieee_all
     implicit none
-    integer , intent(in ) :: n
-    real(rp), intent(in ), dimension(0:n+1) :: dci_g,dfi_g,dc_g,df_g
+    integer , intent(in ) :: n,nh
+    real(rp), intent(in ), dimension(1-nh:n+nh) :: dci_g,dfi_g,dc_g,df_g
     character(len=1), intent(in), dimension(0:1) :: cbc
     character(len=1), intent(in) :: c_or_f
     real(rp), intent(out), dimension(n) :: lambda_g
@@ -154,7 +155,7 @@ module mod_initsolver
     type(ieee_status_type) :: fp_status
     !
     q = merge(1,0,c_or_f == 'f'.and.cbc(1) /= 'P')
-    call tridmatrix(cbc,n,dci_g,dfi_g,c_or_f,.true.,a_g,b_g,c_g)
+    call tridmatrix(cbc,n,nh,dci_g,dfi_g,c_or_f,.true.,a_g,b_g,c_g)
     allocate(eigvecs(n,n),work(1),iwork(1))
     !
     ! preserve the caller's IEEE state while LAPACK uses nonhalting arithmetic
@@ -299,11 +300,12 @@ module mod_initsolver
     end select
   end subroutine eigenvalues
   !
-  subroutine tridmatrix(bc,n,dzci,dzfi,c_or_f,is_symm,a,b,c)
+  subroutine tridmatrix(bc,n,nh,dzci,dzfi,c_or_f,is_symm,a,b,c)
     implicit none
     character(len=1), intent(in), dimension(0:1) :: bc
     integer , intent(in) :: n
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    integer , intent(in) :: nh
+    real(rp), intent(in), dimension(1-nh:) :: dzci,dzfi
     character(len=1), intent(in) :: c_or_f ! c -> cell-centered; f-face-centered
     logical , intent(in) :: is_symm
     real(rp), intent(out), dimension(n) :: a,b,c

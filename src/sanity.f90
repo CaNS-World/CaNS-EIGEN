@@ -31,7 +31,7 @@ module mod_sanity
   use mod_types
   implicit none
   private
-  public test_sanity_input,test_sanity_grid,test_sanity_solver
+  public test_sanity_input,test_sanity_grid,test_sanity_solver,test_sanity_halo
   contains
   subroutine test_sanity_input(ng,dims,stop_type,cbcvel,cbcpre,bcvel,bcpre,is_forced)
     !
@@ -84,10 +84,11 @@ module mod_sanity
     end if
   end subroutine test_sanity_input
   !
-  subroutine test_sanity_grid(is_poisson_fft,dxf,dyf)
+  subroutine test_sanity_grid(is_poisson_fft,nh,dxf,dyf)
     implicit none
+    integer , intent(in) :: nh
     logical, intent(in), dimension(2) :: is_poisson_fft
-    real(rp), intent(in), dimension(0:) :: dxf,dyf
+    real(rp), intent(in), dimension(1-nh:) :: dxf,dyf
     logical, dimension(2) :: is_non_uniform_grid
     logical :: passed
     integer :: idir
@@ -283,7 +284,7 @@ module mod_sanity
     end if
   end subroutine chk_forcing
   !
-  subroutine test_sanity_solver(ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
+  subroutine test_sanity_solver(ng,lo,hi,n,nh_v,nh_p,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
                                 dxc,dxf,dyc,dyf,dzc,dzf,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                                 nb,is_bound,cbcvel,cbcpre,bcvel,bcpre)
 #if defined(_OPENACC)
@@ -293,9 +294,10 @@ module mod_sanity
     use mod_param, only: nscal,cbcscal,bcscal
     implicit none
     integer , intent(in), dimension(3) :: ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z
+    integer , intent(in)               :: nh_v,nh_p,nh_g
     logical , intent(in), dimension(2) :: is_poisson_fft
     real(rp), intent(in), dimension(3) :: l
-    real(rp), intent(in), dimension(0:) :: dxc,dxf,dyc,dyf,dzc,dzf, &
+    real(rp), intent(in), dimension(1-nh_g:) :: dxc,dxf,dyc,dyf,dzc,dzf, &
                                            dxci,dxfi,dyci,dyfi,dzci,dzfi, &
                                            dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     integer , intent(in), dimension(0:1,3) :: nb
@@ -326,11 +328,11 @@ module mod_sanity
     logical :: passed,passed_loc
     passed = .true.
     !$acc wait
-    allocate(u(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             v(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             w(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             p(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             phi(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
+    allocate(u(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             v(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             w(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             p(1-nh_p:n(1)+nh_p,1-nh_p:n(2)+nh_p,1-nh_p:n(3)+nh_p), &
+             phi(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), & ! same width as the velocity, see `field` below
              lambdax_g(ng(1)),lambday_g(ng(2)),lambdaxy(n_z(1),n_z(2)), &
              eigvecx_fwd(ng(1),ng(1)),eigvecx_bwd(ng(1),ng(1)), &
              eigvecy_fwd(ng(2),ng(2)),eigvecy_bwd(ng(2),ng(2)), &
@@ -354,7 +356,7 @@ module mod_sanity
     !
     ! test pressure correction
     !
-    call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+    call initsolver(is_poisson_fft,ng,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                     cbcpre,bcpre(:,:),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                     ['c','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
     !$acc enter data copyin(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
@@ -363,16 +365,16 @@ module mod_sanity
 #endif
     dt  = acos(-1.) ! value is irrelevant
     dti = dt**(-1)
-    call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
-    call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,div_initial)
-    call fillps(n,dxfi,dyfi,dzfi,dti,u,v,w,p)
-    call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbx,rhsby,rhsbz,p)
-    call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
-                cbcpre,['c','c','c'],p)
-    call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p)
-    call correc(n,dxci,dyci,dzci,dt,p,u,v,w)
-    call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
-    call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
+    call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
+    call chkdiv(lo,hi,nh_v,nh_g,l,dxfi,dyfi,dzfi,u,v,w,divtot,div_initial)
+    call fillps(n,nh_v,nh_p,nh_g,dxfi,dyfi,dzfi,dti,u,v,w,p)
+    call updt_rhs_b(['c','c','c'],cbcpre,n,nh_p,is_bound,rhsbx,rhsby,rhsbz,p)
+    call solver(n,nh_p,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                a,b,c,cbcpre,['c','c','c'],p)
+    call boundp(cbcpre,n,nh_p,nh_g,bcpre,nb,is_bound,dxc,dyc,dzc,p)
+    call correc(n,nh_v,nh_p,nh_g,dxci,dyci,dzci,dt,p,u,v,w)
+    call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
+    call chkdiv(lo,hi,nh_v,nh_g,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
     !$acc update self(u,v,w,p)
     passed_loc = all(ieee_is_finite(u)).and.all(ieee_is_finite(v)).and. &
                  all(ieee_is_finite(w)).and.all(ieee_is_finite(p))
@@ -415,7 +417,7 @@ module mod_sanity
         field(:,:,:) = 0.
         call add_noise(ng,lo,123*icomponent,.5_rp,field(1:n(1),1:n(2),1:n(3)))
         !$acc update device(field)
-        call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+        call initsolver(is_poisson_fft,ng,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                         field_bc,field_values,lambdax_g,lambday_g,lambdaxy, &
                         eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,center,a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
         !$acc update device(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
@@ -425,9 +427,9 @@ module mod_sanity
         call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
         if(icomponent <= 3) then
-          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+          call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
-          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+          call boundp(field_bc,n,nh_v,nh_g,field_values,nb,is_bound,dxc,dyc,dzc,field)
         end if
         !$acc wait
         !$acc parallel loop collapse(3) default(present)
@@ -439,17 +441,17 @@ module mod_sanity
             end do
           end do
         end do
-        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
+        call solve_helmholtz(n,nh_v,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
                              eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                              a,b,c,rhsbx,rhsby,rhsbz,is_bound,field_bc,center,field)
         !$acc wait
         call fftend(arrplan)
         if(icomponent <= 3) then
-          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+          call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
-          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+          call boundp(field_bc,n,nh_v,nh_g,field_values,nb,is_bound,dxc,dyc,dzc,field)
         end if
-        call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,field,field_bc,is_bound,center, &
+        call chk_helmholtz(lo,hi,nh_p,nh_v,nh_g,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,field,field_bc,is_bound,center, &
                            restot,resmax,implicit_dir)
         !$acc update self(field,p)
         passed_loc = all(ieee_is_finite(field)).and.all(ieee_is_finite(p))
@@ -485,4 +487,231 @@ module mod_sanity
     call MPI_FINALIZE(ierr)
     error stop
   end subroutine abortit
+  !
+  subroutine test_sanity_halo(ng,lo,n,nh_v,nh_p,nh_s,nh_g,dxc,dxf,dyc,dyf,dzc,dzf,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g, &
+                              nb,is_bound, &
+                              cbcvel,bcvel,cbcpre,bcpre,cbcscal,bcscal)
+    !
+    ! checks the halo exchanges and boundary conditions on all ghost layers, edges and
+    ! corners included: the interior of each field is set to f(i,j,k), a function of the
+    ! global indices, the halos are updated, and every point is compared against its
+    ! expected value (see `expected_value`)
+    !
+    implicit none
+    integer , intent(in), dimension(3) :: ng,lo,n
+    integer , intent(in)               :: nh_v,nh_p,nh_s,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxc,dxf,dyc,dyf,dzc,dzf,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g
+    integer , intent(in), dimension(0:1,3) :: nb
+    logical , intent(in), dimension(0:1,3) :: is_bound
+    character(len=1), intent(in), dimension(0:1,3,3) :: cbcvel
+    real(rp)        , intent(in), dimension(0:1,3,3) :: bcvel
+    character(len=1), intent(in), dimension(0:1,3)   :: cbcpre
+    real(rp)        , intent(in), dimension(0:1,3)   :: bcpre
+    character(len=1), intent(in), dimension(0:1,3), optional :: cbcscal
+    real(rp)        , intent(in), dimension(0:1,3), optional :: bcscal
+    real(rp), allocatable, dimension(:,:,:) :: u,v,w,p
+    real(rp), dimension(3) :: errmax
+    logical , dimension(3,3) :: is_c
+    logical :: passed
+    integer :: ivel
+    !
+    is_c(:,:) = .true.
+    do ivel=1,3
+      is_c(ivel,ivel) = .false. ! velocity component `ivel` is staggered along `ivel`
+    end do
+    passed = .true.
+    !
+    ! velocity
+    !
+    allocate(u(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             v(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             w(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v))
+    call set_field(n,nh_v,lo,u)
+    call set_field(n,nh_v,lo,v)
+    call set_field(n,nh_v,lo,w)
+    !$acc enter data copyin(u,v,w)
+    call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+    !$acc wait
+    !$acc exit data copyout(u,v,w)
+    errmax(1) = field_error(ng,lo,n,nh_v,is_c(:,1),cbcvel(:,:,1),bcvel(:,:,1),nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,u)
+    errmax(2) = field_error(ng,lo,n,nh_v,is_c(:,2),cbcvel(:,:,2),bcvel(:,:,2),nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,v)
+    errmax(3) = field_error(ng,lo,n,nh_v,is_c(:,3),cbcvel(:,:,3),bcvel(:,:,3),nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,w)
+    call MPI_ALLREDUCE(MPI_IN_PLACE,errmax,3,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
+    if(myid == 0.and.any(errmax(:) > 0.)) &
+      print*, 'ERROR: wrong velocity halo values; maximum relative errors of u, v, w = ', errmax(:)
+    passed = passed.and.all(errmax(:) <= 0.)
+    deallocate(u,v,w)
+    !
+    ! pressure
+    !
+    allocate(p(1-nh_p:n(1)+nh_p,1-nh_p:n(2)+nh_p,1-nh_p:n(3)+nh_p))
+    call set_field(n,nh_p,lo,p)
+    !$acc enter data copyin(p)
+    call boundp(cbcpre,n,nh_p,nh_g,bcpre,nb,is_bound,dxc,dyc,dzc,p)
+    !$acc wait
+    !$acc exit data copyout(p)
+    errmax(1) = field_error(ng,lo,n,nh_p,[.true.,.true.,.true.],cbcpre,bcpre,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,p)
+    call MPI_ALLREDUCE(MPI_IN_PLACE,errmax(1),1,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
+    if(myid == 0.and.errmax(1) > 0.) &
+      print*, 'ERROR: wrong pressure halo values; maximum relative error = ', errmax(1)
+    passed = passed.and.errmax(1) <= 0.
+    deallocate(p)
+    !
+    ! scalar
+    !
+    if(present(cbcscal).and.present(bcscal)) then
+      allocate(p(1-nh_s:n(1)+nh_s,1-nh_s:n(2)+nh_s,1-nh_s:n(3)+nh_s))
+      call set_field(n,nh_s,lo,p)
+      !$acc enter data copyin(p)
+      call boundp(cbcscal,n,nh_s,nh_g,bcscal,nb,is_bound,dxc,dyc,dzc,p)
+      !$acc wait
+      !$acc exit data copyout(p)
+      errmax(1) = field_error(ng,lo,n,nh_s,[.true.,.true.,.true.],cbcscal,bcscal,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,p)
+      call MPI_ALLREDUCE(MPI_IN_PLACE,errmax(1),1,MPI_REAL_RP,MPI_MAX,MPI_COMM_WORLD,ierr)
+      if(myid == 0.and.errmax(1) > 0.) &
+        print*, 'ERROR: wrong scalar halo values; maximum relative error = ', errmax(1)
+      passed = passed.and.errmax(1) <= 0.
+      deallocate(p)
+    end if
+    if(.not.passed) then
+      call decomp_2d_finalize
+      call MPI_FINALIZE(ierr)
+      error stop
+    end if
+    if(myid == 0) print*, '*** Halo check passed for widths (velocity, pressure, scalars): ', nh_v,nh_p,nh_s, ' ***'
+  end subroutine test_sanity_halo
+  !
+  pure real(rp) function fval(i,j,k)
+    !
+    ! test field: exact and distinct for less than 64 points per direction, halos included
+    !
+    implicit none
+    integer, intent(in) :: i,j,k
+    fval = i + 64._rp*j + 4096._rp*k
+  end function fval
+  !
+  subroutine set_field(n,nh,lo,p)
+    implicit none
+    integer , intent(in), dimension(3) :: n,lo
+    integer , intent(in)               :: nh
+    real(rp), intent(out), dimension(1-nh:,1-nh:,1-nh:) :: p
+    integer :: i,j,k
+    p(:,:,:) = -huge(1._rp)/8 ! stale halo values
+    do k=1,n(3)
+      do j=1,n(2)
+        do i=1,n(1)
+          p(i,j,k) = fval(i+lo(1)-1,j+lo(2)-1,k+lo(3)-1)
+        end do
+      end do
+    end do
+  end subroutine set_field
+  !
+  function field_error(ng,lo,n,nh,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g,p) result(errmax)
+    !
+    ! maximum relative error over all points, halos included (zero if within round-off)
+    !
+    implicit none
+    integer , intent(in), dimension(3) :: ng,lo,n
+    integer , intent(in)               :: nh
+    logical , intent(in), dimension(3) :: is_c
+    character(len=1), intent(in), dimension(0:1,3) :: cbc
+    real(rp), intent(in), dimension(0:1,3) :: bc
+    integer , intent(in)                   :: nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: xc_g,xf_g,yc_g,yf_g,zc_g,zf_g
+    real(rp), intent(in), dimension(1-nh:,1-nh:,1-nh:) :: p
+    real(rp) :: errmax,val,err
+    integer :: i,j,k
+    errmax = 0.
+    do k=1-nh,n(3)+nh
+      do j=1-nh,n(2)+nh
+        do i=1-nh,n(1)+nh
+          val = expected_value([i,j,k]+lo(:)-1,ng,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g)
+          err = abs(p(i,j,k)-val)/max(1._rp,abs(val))
+          if(err > small) errmax = max(errmax,err)
+        end do
+      end do
+    end do
+  end function field_error
+  !
+  recursive function expected_value(ii,ng,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g) result(val)
+    !
+    ! value of the test field at global index `ii`, inside or outside the domain, after the halo
+    ! exchange and the boundary conditions, which are imposed along x, y, and z, in this order:
+    ! outside the domain, it is the value at the periodic image or, for a boundary, the value at
+    ! the mirror point transformed by the boundary condition (cf. `set_bc` under `bound.f90`),
+    ! starting from the last direction of the sequence along which `ii` is outside
+    !
+    implicit none
+    integer , intent(in), dimension(3) :: ii,ng
+    logical , intent(in), dimension(3) :: is_c
+    character(len=1), intent(in), dimension(0:1,3) :: cbc
+    real(rp), intent(in), dimension(0:1,3) :: bc
+    integer , intent(in)                   :: nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: xc_g,xf_g,yc_g,yf_g,zc_g,zf_g
+    real(rp) :: val
+    integer , dimension(3) :: im
+    integer :: idir,i,ib,dh
+    real(rp) :: dr
+    do idir=3,1,-1
+      i = ii(idir)
+      im(:) = ii(:)
+      if(cbc(0,idir)//cbc(1,idir) == 'PP') then
+        if(i >= 1 .and. i <= ng(idir)) cycle
+        im(idir) = modulo(i-1,ng(idir))+1
+        val = expected_value(im,ng,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g)
+        return
+      end if
+      if(is_c(idir)) then
+        if(     i < 1       ) then
+          ib = 0; dh = -i         ; im(idir) = 1+dh
+        else if(i > ng(idir)) then
+          ib = 1; dh = i-ng(idir)-1; im(idir) = ng(idir)-dh
+        else
+          cycle
+        end if
+      else ! the boundary node is also set by the boundary condition
+        if(     i <= 0       ) then
+          ib = 0; dh = -i         ; im(idir) = max(dh,1)
+        else if(i >= ng(idir)) then
+          ib = 1; dh = i-ng(idir) ; im(idir) = ng(idir)-max(dh,1)
+        else
+          cycle
+        end if
+      end if
+      select case(idir)
+      case(1)
+        if(is_c(idir)) then
+          dr = abs(xc_g(im(idir))-xc_g(i))
+        else
+          dr = abs(xf_g(im(idir))-xf_g(i))
+        end if
+      case(2)
+        if(is_c(idir)) then
+          dr = abs(yc_g(im(idir))-yc_g(i))
+        else
+          dr = abs(yf_g(im(idir))-yf_g(i))
+        end if
+      case(3)
+        if(is_c(idir)) then
+          dr = abs(zc_g(im(idir))-zc_g(i))
+        else
+          dr = abs(zf_g(im(idir))-zf_g(i))
+        end if
+      end select
+      select case(cbc(ib,idir))
+      case('D')
+        if(.not.is_c(idir) .and. dh == 0) then
+          val = bc(ib,idir)
+        else
+          val = 2.*bc(ib,idir) - expected_value(im,ng,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g)
+        end if
+      case('N')
+        val = expected_value(im,ng,is_c,cbc,bc,nh_g,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g) + (2*ib-1)*dr*bc(ib,idir)
+      case default
+        val = huge(1._rp)
+      end select
+      return
+    end do
+    val = fval(ii(1),ii(2),ii(3))
+  end function expected_value
 end module mod_sanity

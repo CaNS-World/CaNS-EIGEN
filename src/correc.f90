@@ -10,16 +10,17 @@ module mod_correc
   private
   public correc
   contains
-  subroutine correc(n,dxci,dyci,dzci,dt,p,u,v,w)
+  subroutine correc(n,nh_v,nh_p,nh_g,dxci,dyci,dzci,dt,p,u,v,w)
     !
     ! corrects the velocity so that it is divergence free
     !
     implicit none
     integer , intent(in), dimension(3) :: n
-    real(rp), intent(in), dimension(0:) :: dxci,dyci,dzci
+    integer , intent(in)               :: nh_v,nh_p,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dyci,dzci
     real(rp), intent(in) :: dt
-    real(rp), intent(in   ), dimension(0:,0:,0:) :: p
-    real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(in   ), dimension(1-nh_p:,1-nh_p:,1-nh_p:) :: p
+    real(rp), intent(inout), dimension(1-nh_v:,1-nh_v:,1-nh_v:) :: u,v,w
     integer :: i,j,k
     !
     !$acc parallel loop collapse(3) default(present) async(1)

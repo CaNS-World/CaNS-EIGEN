@@ -25,7 +25,7 @@ contains
     use mod_fft            , only: wsize_fft,wsize_tmp
     use mod_param          , only: ng,dims,cudecomp_is_t_in_place,cbcpre, &
                                    ipencil => ipencil_axis,is_poisson_dtdma,is_poisson_fft, &
-                                   is_use_diezdecomp
+                                   is_use_diezdecomp,nh_g
 #if defined(_USE_DIEZDECOMP)
     use diezdecomp
 #elif defined(_USE_HIP)
@@ -79,7 +79,7 @@ contains
     ! (needs to be separate due to the possible need for an NVSHMEM allocator
     !  in one of the descriptors, rather than a simple cudaMalloc)
     !
-    nh(:) = 1
+    nh(:) = nh_g ! largest halo width
     istat = cudecompGetHaloWorkspaceSize(handle,gd_halo,ipencil,nh,max_wsize)
     allocate(work_halo(max_wsize))
     !

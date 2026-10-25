@@ -10,7 +10,7 @@ module mod_fillps
   private
   public fillps
   contains
-  subroutine fillps(n,dxfi,dyfi,dzfi,dti,u,v,w,p)
+  subroutine fillps(n,nh_v,nh_p,nh_g,dxfi,dyfi,dzfi,dti,u,v,w,p)
     !
     !  fill the right-hand side of the Poisson equation for the correction pressure.
     !
@@ -22,10 +22,11 @@ module mod_fillps
     !
     implicit none
     integer , intent(in ), dimension(3) :: n
-    real(rp), intent(in ), dimension(0:) :: dxfi,dyfi,dzfi
+    integer , intent(in )               :: nh_v,nh_p,nh_g
+    real(rp), intent(in ), dimension(1-nh_g:) :: dxfi,dyfi,dzfi
     real(rp), intent(in ) :: dti
-    real(rp), intent(in ), dimension(0:,0:,0:) :: u,v,w
-    real(rp), intent(out), dimension(0:,0:,0:) :: p
+    real(rp), intent(in ), dimension(1-nh_v:,1-nh_v:,1-nh_v:) :: u,v,w
+    real(rp), intent(out), dimension(1-nh_p:,1-nh_p:,1-nh_p:) :: p
     integer :: i,j,k
     !
     !$acc parallel loop collapse(3) default(present) async(1)

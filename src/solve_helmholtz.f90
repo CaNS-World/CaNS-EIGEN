@@ -27,13 +27,14 @@ module mod_solve_helmholtz
   end type rhs_bound
   public solve_helmholtz,rhs_bound
   contains
-  subroutine solve_helmholtz(n,ng,hi,is_fft,arrplan,normfft,alpha,lambday,lambdaxy, &
+  subroutine solve_helmholtz(n,nh,ng,hi,is_fft,arrplan,normfft,alpha,lambday,lambdaxy, &
                              eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                              a,b,c,rhsbx,rhsby,rhsbz,is_bound,cbc,c_or_f,p)
     !
     ! this is a wrapper subroutine to solve 1D/3D helmholtz problems: p/alpha + lap(p) = rhs
     !
     integer ,    intent(in   ), dimension(3)                :: n,ng,hi
+    integer ,    intent(in   )                              :: nh
     logical ,    intent(in   ), dimension(2)                :: is_fft
 #if !defined(_OPENACC) || defined(_USE_HIP)
     type(C_PTR), intent(in   ), dimension(2,2),    optional :: arrplan
@@ -73,15 +74,15 @@ module mod_solve_helmholtz
     !
     select case(impdiff_mode)
     case(impdiff_z)
-      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbz=rhsbz,p=p,alpha=alpha)
-      call solver_gaussel_z(n,ng,hi,a,bb,c,cbc(:,3),c_or_f,alphai,p)
+      call updt_rhs_b(c_or_f,cbc,n,nh,is_bound,rhsbz=rhsbz,p=p,alpha=alpha)
+      call solver_gaussel_z(n,nh,ng,hi,a,bb,c,cbc(:,3),c_or_f,alphai,p)
     case(impdiff_yz)
-      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsby=rhsby,rhsbz=rhsbz,p=p,alpha=alpha)
-      call solver_gaussel_yz(n,ng,is_fft,arrplan,normfft(2)*alphai, &
+      call updt_rhs_b(c_or_f,cbc,n,nh,is_bound,rhsby=rhsby,rhsbz=rhsbz,p=p,alpha=alpha)
+      call solver_gaussel_yz(n,nh,ng,is_fft,arrplan,normfft(2)*alphai, &
                              lambday,eigvecy_fwd,eigvecy_bwd,a,bb,c,cbc,c_or_f,p)
     case(impdiff_xyz)
-      call updt_rhs_b(c_or_f,cbc,n,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
-      call solver(n,ng,is_fft,arrplan,product(normfft(:))*alphai, &
+      call updt_rhs_b(c_or_f,cbc,n,nh,is_bound,rhsbx,rhsby,rhsbz,p,alpha)
+      call solver(n,nh,ng,is_fft,arrplan,product(normfft(:))*alphai, &
                   lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                   a,bb,c,cbc,c_or_f,p)
     end select

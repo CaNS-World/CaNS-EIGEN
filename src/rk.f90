@@ -577,7 +577,7 @@ module mod_rk
     real(rp), dimension(0:1,3,3) :: tau_i
     real(rp), dimension(3,3) :: tw,two
     real(rp), dimension(3) :: db
-    real(rp), dimension(0:nh,0:1) :: dr
+    real(rp), allocatable, dimension(:,:,:), save :: dr
     real(rp) :: factor1,factor2,factor12,alpha
     logical , dimension(3) :: is_w
     integer :: idir,ib
@@ -622,24 +622,23 @@ module mod_rk
       end if
       !
       ! wall shear of the unforced solution, with the ghost values set from the boundary conditions
+      ! (`dr` -> distances between the ghost layers and their mirror points, computed only once)
       !
+      if(.not.allocated(dr)) then
+        allocate(dr(0:nh,0:1,3))
+        do ib=0,1
+          dr(:,ib,1) = bc_dist(nh,nh_g,n(1),ib,.true.,dxc)
+          dr(:,ib,2) = bc_dist(nh,nh_g,n(2),ib,.true.,dyc)
+          dr(:,ib,3) = bc_dist(nh,nh_g,n(3),ib,.true.,dzc)
+        end do
+      end if
       do idir=1,3
         if(.not.is_w(idir)) cycle
         do ib=0,1
-          select case(idir)
-          case(1)
-            dr(:,ib) = bc_dist(nh,nh_g,n(1),ib,.true.,dxc)
-          case(2)
-            dr(:,ib) = bc_dist(nh,nh_g,n(2),ib,.true.,dyc)
-          case(3)
-            dr(:,ib) = bc_dist(nh,nh_g,n(3),ib,.true.,dzc)
-          end select
-        end do
-        do ib=0,1
           if(.not.is_bound(ib,idir)) cycle
-          if(is_forced(1)) call set_bc(cbcvel(ib,idir,1),ib,idir,nh,.true.,bcvel(ib,idir,1),dr(:,ib),u)
-          if(is_forced(2)) call set_bc(cbcvel(ib,idir,2),ib,idir,nh,.true.,bcvel(ib,idir,2),dr(:,ib),v)
-          if(is_forced(3)) call set_bc(cbcvel(ib,idir,3),ib,idir,nh,.true.,bcvel(ib,idir,3),dr(:,ib),w)
+          if(is_forced(1)) call set_bc(cbcvel(ib,idir,1),ib,idir,nh,.true.,bcvel(ib,idir,1),dr(:,ib,idir),u)
+          if(is_forced(2)) call set_bc(cbcvel(ib,idir,2),ib,idir,nh,.true.,bcvel(ib,idir,2),dr(:,ib,idir),v)
+          if(is_forced(3)) call set_bc(cbcvel(ib,idir,3),ib,idir,nh,.true.,bcvel(ib,idir,3),dr(:,ib,idir),w)
         end do
       end do
       call cmpt_wallshear(n,nh,nh_g,is_forced,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &

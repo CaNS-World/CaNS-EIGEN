@@ -34,19 +34,23 @@ module mod_bound
     logical, dimension(0:1) :: updt_norm
     logical :: keep_norm,updt_tang
     integer :: idir,ib
-    real(rp), dimension(0:nh,0:1,3) :: drc,drf
+    real(rp), allocatable, dimension(:,:,:), save :: drc,drf
     !
     ! distances between the ghost layers and their mirror points, for centered (drc)
-    ! and non-centered (drf) components
+    ! and non-centered (drf) components; these depend only on the grid, so they are
+    ! computed only once, for the widest halo
     !
-    do ib=0,1
-      drc(:,ib,1) = bc_dist(nh,nh_g,n(1),ib,.true. ,dxc)
-      drf(:,ib,1) = bc_dist(nh,nh_g,n(1),ib,.false.,dxf)
-      drc(:,ib,2) = bc_dist(nh,nh_g,n(2),ib,.true. ,dyc)
-      drf(:,ib,2) = bc_dist(nh,nh_g,n(2),ib,.false.,dyf)
-      drc(:,ib,3) = bc_dist(nh,nh_g,n(3),ib,.true. ,dzc)
-      drf(:,ib,3) = bc_dist(nh,nh_g,n(3),ib,.false.,dzf)
-    end do
+    if(.not.allocated(drc) .and. .not.allocated(drf)) then
+      allocate(drc(0:nh_g,0:1,3),drf(0:nh_g,0:1,3))
+      do ib=0,1
+        drc(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.true. ,dxc)
+        drf(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.false.,dxf)
+        drc(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.true. ,dyc)
+        drf(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.false.,dyf)
+        drc(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.true. ,dzc)
+        drf(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.false.,dzf)
+      end do
+    end if
     keep_norm = .false.
     if(present(keep_norm_values)) keep_norm = keep_norm_values
     updt_norm(:) = .true.
@@ -174,15 +178,20 @@ module mod_bound
     integer , intent(in), optional :: halo_side
     logical, dimension(0:1) :: update_halo
     integer :: idir,ib
-    real(rp), dimension(0:nh,0:1,3) :: dr
+    real(rp), allocatable, dimension(:,:,:), save :: dr
     !
-    ! distances between the ghost layers and their mirror points
+    ! distances between the ghost layers and their mirror points; these depend only
+    ! on the grid, so they are computed only once, for the widest halo, which serves
+    ! the pressure and all scalars
     !
-    do ib=0,1
-      dr(:,ib,1) = bc_dist(nh,nh_g,n(1),ib,.true.,dxc)
-      dr(:,ib,2) = bc_dist(nh,nh_g,n(2),ib,.true.,dyc)
-      dr(:,ib,3) = bc_dist(nh,nh_g,n(3),ib,.true.,dzc)
-    end do
+    if(.not.allocated(dr)) then
+      allocate(dr(0:nh_g,0:1,3))
+      do ib=0,1
+        dr(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.true.,dxc)
+        dr(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.true.,dyc)
+        dr(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.true.,dzc)
+      end do
+    end if
     update_halo(:) = .true.
     if(present(halo_side)) then
       select case(halo_side)

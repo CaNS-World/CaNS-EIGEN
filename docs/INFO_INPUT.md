@@ -408,7 +408,7 @@ In this line, `impdiff_mode` controls the (semi-) **implicit temporal integratio
 * `2`: implicit diffusion along Y and Z; this requires `ipencil_axis = 2` or `3` with `dims(2) = 1`, and `ipencil_axis = 2` is recommended.
 * `3`: implicit diffusion along all directions.
 
-`is_poisson_dtdma`, if `.true.`, allows for solving the Poisson/Helmholtz equations along Z with a parallel cyclic reduction--tridiagonal matrix algorithm (DTDMA) method. This approach may result in major gains in scalability for pencil-distributed simulations at scale, on many GPUs.
+`is_poisson_dtdma`, if `.true.`, solves the Poisson/Helmholtz equations along Z with a distributed tridiagonal matrix algorithm (DTDMA). This approach may result in major gains in scalability for pencil-distributed simulations at scale, on many GPUs.
 
 Finally, `is_poisson_fft` toggles the FFT-based synthesis in the Poisson solver on and off along `x` and `y`; setting it to `.false.` in a direction activates the generalized-eigenvector/GEMM path needed for non-uniform grids there.
 

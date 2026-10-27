@@ -65,13 +65,13 @@ program cans
                                  rkcoeff,small, &
                                  datadir,io_ext, &
                                  read_input, &
-                                 is_debug,is_debug_poisson,is_debug_halo, &
+                                 is_debug,is_debug_poisson, &
                                  is_timing, &
                                  impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz, &
                                  is_poisson_dtdma,is_poisson_fft, &
                                  is_mask_divergence_check, &
                                  nh_v,nh_p,nh_s,nh_g
-  use mod_sanity         , only: test_sanity_input,test_sanity_grid,test_sanity_solver,test_sanity_halo
+  use mod_sanity         , only: test_sanity_input,test_sanity_grid,test_sanity_solver
   use mod_scal           , only: scalar,initialize_scalars,bulk_forcing_s
   use mod_solve_helmholtz, only: solve_helmholtz,rhs_bound
 #if !defined(_OPENACC)
@@ -464,15 +464,6 @@ program cans
     call test_sanity_solver(ng,lo,hi,n,nh_v,nh_p,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
                             dxc,dxf,dyc,dyf,dzc,dzf,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                             nb,is_bound,cbcvel,cbcpre,bcvel,bcpre)
-  end if
-  if(is_debug_halo) then
-    if(nscal > 0) then
-      call test_sanity_halo(ng,lo,n,nh_v,nh_p,nh_s,nh_g,dxc,dxf,dyc,dyf,dzc,dzf,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g, &
-                            nb,is_bound,cbcvel,bcvel,cbcpre,bcpre,scalars(1)%cbc,scalars(1)%bc)
-    else
-      call test_sanity_halo(ng,lo,n,nh_v,nh_p,nh_s,nh_g,dxc,dxf,dyc,dyf,dzc,dzf,xc_g,xf_g,yc_g,yf_g,zc_g,zf_g, &
-                            nb,is_bound,cbcvel,bcvel,cbcpre,bcpre)
-    end if
   end if
   !
   allocate(io_vars(4+nscal),c_io_vars(4+nscal),nh_io(3,4+nscal)) ! u,v,w,p,scalars

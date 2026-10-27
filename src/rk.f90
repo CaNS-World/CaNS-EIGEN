@@ -627,9 +627,9 @@ module mod_rk
       if(.not.allocated(dr)) then
         allocate(dr(0:nh,0:1,3))
         do ib=0,1
-          dr(:,ib,1) = bc_dist(nh,nh_g,n(1),ib,.true.,dxc)
-          dr(:,ib,2) = bc_dist(nh,nh_g,n(2),ib,.true.,dyc)
-          dr(:,ib,3) = bc_dist(nh,nh_g,n(3),ib,.true.,dzc)
+          dr(:,ib,1) = bc_dist(n(1),nh,nh_g,ib,.true.,dxc)
+          dr(:,ib,2) = bc_dist(n(2),nh,nh_g,ib,.true.,dyc)
+          dr(:,ib,3) = bc_dist(n(3),nh,nh_g,ib,.true.,dzc)
         end do
       end if
       do idir=1,3

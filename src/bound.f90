@@ -43,12 +43,12 @@ module mod_bound
     if(.not.allocated(drc) .and. .not.allocated(drf)) then
       allocate(drc(0:nh_g,0:1,3),drf(0:nh_g,0:1,3))
       do ib=0,1
-        drc(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.true. ,dxc)
-        drf(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.false.,dxf)
-        drc(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.true. ,dyc)
-        drf(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.false.,dyf)
-        drc(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.true. ,dzc)
-        drf(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.false.,dzf)
+        drc(:,ib,1) = bc_dist(n(1),nh_g,nh_g,ib,.true. ,dxc)
+        drf(:,ib,1) = bc_dist(n(1),nh_g,nh_g,ib,.false.,dxf)
+        drc(:,ib,2) = bc_dist(n(2),nh_g,nh_g,ib,.true. ,dyc)
+        drf(:,ib,2) = bc_dist(n(2),nh_g,nh_g,ib,.false.,dyf)
+        drc(:,ib,3) = bc_dist(n(3),nh_g,nh_g,ib,.true. ,dzc)
+        drf(:,ib,3) = bc_dist(n(3),nh_g,nh_g,ib,.false.,dzf)
       end do
     end if
     keep_norm = .false.
@@ -187,9 +187,9 @@ module mod_bound
     if(.not.allocated(dr)) then
       allocate(dr(0:nh_g,0:1,3))
       do ib=0,1
-        dr(:,ib,1) = bc_dist(nh_g,nh_g,n(1),ib,.true.,dxc)
-        dr(:,ib,2) = bc_dist(nh_g,nh_g,n(2),ib,.true.,dyc)
-        dr(:,ib,3) = bc_dist(nh_g,nh_g,n(3),ib,.true.,dzc)
+        dr(:,ib,1) = bc_dist(n(1),nh_g,nh_g,ib,.true.,dxc)
+        dr(:,ib,2) = bc_dist(n(2),nh_g,nh_g,ib,.true.,dyc)
+        dr(:,ib,3) = bc_dist(n(3),nh_g,nh_g,ib,.true.,dzc)
       end do
     end if
     update_halo(:) = .true.
@@ -232,7 +232,7 @@ module mod_bound
     end if
   end subroutine boundp
   !
-  function bc_dist(nh,nh_g,n,ibound,centered,ds) result(dr)
+  function bc_dist(n,nh,nh_g,ibound,centered,ds) result(dr)
     !
     ! distances between the `nh` ghost layers next to boundary `ibound` and their
     ! mirror points across it, from the grid spacing `ds` (cell-center spacing for a
@@ -240,7 +240,7 @@ module mod_bound
     ! is the spacing of the one-sided Neumann condition at the boundary node
     !
     implicit none
-    integer , intent(in) :: nh,nh_g,n,ibound
+    integer , intent(in) :: n,nh,nh_g,ibound
     logical , intent(in) :: centered
     real(rp), intent(in), dimension(1-nh_g:) :: ds
     real(rp), dimension(0:nh)                :: dr

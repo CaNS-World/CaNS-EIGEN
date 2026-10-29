@@ -84,10 +84,11 @@ module mod_sanity
     end if
   end subroutine test_sanity_input
   !
-  subroutine test_sanity_grid(is_poisson_fft,dxf,dyf)
+  subroutine test_sanity_grid(is_poisson_fft,nh,dxf,dyf)
     implicit none
+    integer , intent(in) :: nh
     logical, intent(in), dimension(2) :: is_poisson_fft
-    real(rp), intent(in), dimension(0:) :: dxf,dyf
+    real(rp), intent(in), dimension(1-nh:) :: dxf,dyf
     logical, dimension(2) :: is_non_uniform_grid
     logical :: passed
     integer :: idir
@@ -115,13 +116,13 @@ module mod_sanity
   end subroutine chk_stop_type
   !
   subroutine chk_dims(ng,dims,cbcvel,cbcpre,passed)
-    use mod_param, only: nscal,cbcscal
+    use mod_param, only: nscal,cbcscal,nh_g
     implicit none
     integer, intent(in) :: ng(3),dims(2)
     character(len=1), intent(in) :: cbcvel(0:1,3,3),cbcpre(0:1,3)
     logical, intent(out) :: passed
-    integer :: ii(2),idir,ivel,iscal
-    logical :: periodic
+    integer :: ii(2),ntasks(3),idir,ivel,iscal
+    logical :: periodic,passed_loc
     passed = all(ng >= 1).and.any(ipencil_axis == [1,2,3])
     if(.not.passed) then
       if(myid == 0) print*, 'ERROR: positive grid sizes and a valid pencil axis are required.'
@@ -130,6 +131,17 @@ module mod_sanity
     ii = pack([1,2,3],[1,2,3] /= ipencil_axis)
     passed = all(dims <= ng(ii)).and.all(dims >= 1)
     if(myid == 0.and..not.passed) print*, 'ERROR: process grid exceeds the physical grid.'
+    !
+    ! the halo layers are filled from a single neighbour, or mirrored about a boundary;
+    ! only a periodic direction held by a single task may have fewer cells than halo layers,
+    ! as its halo is then wrapped locally, one layer at a time (see `updthalo`)
+    !
+    ntasks(:) = 1
+    ntasks(ii(:)) = max(dims(:),1)
+    passed_loc = all(ng(:)/ntasks(:) >= nh_g.or.(cbcpre(0,:)//cbcpre(1,:) == 'PP'.and.ntasks(:) == 1))
+    if(myid == 0.and.(.not.passed_loc)) &
+      print*, 'ERROR: fewer cells per task than halo layers (nh_g) along a split or non-periodic direction.'
+    passed = passed.and.passed_loc
     do idir=1,3
       if(ng(idir) /= 1) cycle
       periodic = cbcpre(0,idir)//cbcpre(1,idir) == 'PP'
@@ -283,7 +295,7 @@ module mod_sanity
     end if
   end subroutine chk_forcing
   !
-  subroutine test_sanity_solver(ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
+  subroutine test_sanity_solver(ng,lo,hi,n,nh_v,nh_p,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,n_z,is_poisson_fft,l, &
                                 dxc,dxf,dyc,dyf,dzc,dzf,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                                 nb,is_bound,cbcvel,cbcpre,bcvel,bcpre)
 #if defined(_OPENACC) || defined(_OPENMP)
@@ -293,9 +305,10 @@ module mod_sanity
     use mod_param, only: nscal,cbcscal,bcscal
     implicit none
     integer , intent(in), dimension(3) :: ng,lo,hi,n,n_x_fft,n_y_fft,lo_z,hi_z,n_z
+    integer , intent(in)               :: nh_v,nh_p,nh_g
     logical , intent(in), dimension(2) :: is_poisson_fft
     real(rp), intent(in), dimension(3) :: l
-    real(rp), intent(in), dimension(0:) :: dxc,dxf,dyc,dyf,dzc,dzf, &
+    real(rp), intent(in), dimension(1-nh_g:) :: dxc,dxf,dyc,dyf,dzc,dzf, &
                                            dxci,dxfi,dyci,dyfi,dzci,dzfi, &
                                            dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     integer , intent(in), dimension(0:1,3) :: nb
@@ -326,11 +339,11 @@ module mod_sanity
     logical :: passed,passed_loc
     passed = .true.
     !$acc wait
-    allocate(u(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             v(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             w(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             p(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
-             phi(0:n(1)+1,0:n(2)+1,0:n(3)+1), &
+    allocate(u(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             v(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             w(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), &
+             p(1-nh_p:n(1)+nh_p,1-nh_p:n(2)+nh_p,1-nh_p:n(3)+nh_p), &
+             phi(1-nh_v:n(1)+nh_v,1-nh_v:n(2)+nh_v,1-nh_v:n(3)+nh_v), & ! same width as the velocity, see `field` below
              lambdax_g(ng(1)),lambday_g(ng(2)),lambdaxy(n_z(1),n_z(2)), &
              eigvecx_fwd(ng(1),ng(1)),eigvecx_bwd(ng(1),ng(1)), &
              eigvecy_fwd(ng(2),ng(2)),eigvecy_bwd(ng(2),ng(2)), &
@@ -356,7 +369,7 @@ module mod_sanity
     !
     ! test pressure correction
     !
-    call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+    call initsolver(is_poisson_fft,ng,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                     cbcpre,bcpre(:,:),lambdax_g,lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                     ['c','c','c'],a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
     !$acc        enter data copyin(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
@@ -366,16 +379,16 @@ module mod_sanity
 #endif
     dt  = acos(-1.) ! value is irrelevant
     dti = dt**(-1)
-    call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
-    call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,div_initial)
-    call fillps(n,dxfi,dyfi,dzfi,dti,u,v,w,p)
-    call updt_rhs_b(['c','c','c'],cbcpre,n,is_bound,rhsbx,rhsby,rhsbz,p)
-    call solver(n,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
-                cbcpre,['c','c','c'],p)
-    call boundp(cbcpre,n,bcpre,nb,is_bound,dxc,dyc,dzc,p)
-    call correc(n,dxci,dyci,dzci,dt,p,u,v,w)
-    call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
-    call chkdiv(lo,hi,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
+    call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.false.,-1)
+    call chkdiv(lo,hi,nh_v,nh_g,l,dxfi,dyfi,dzfi,u,v,w,divtot,div_initial)
+    call fillps(n,nh_v,nh_p,nh_g,dxfi,dyfi,dzfi,dti,u,v,w,p)
+    call updt_rhs_b(['c','c','c'],cbcpre,n,nh_p,is_bound,rhsbx,rhsby,rhsbz,p)
+    call solver(n,nh_p,ng,is_poisson_fft,arrplan,product(normfft(:)),lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
+                a,b,c,cbcpre,['c','c','c'],p)
+    call boundp(cbcpre,n,nh_p,nh_g,bcpre,nb,is_bound,dxc,dyc,dzc,p)
+    call correc(n,nh_v,nh_p,nh_g,dxci,dyci,dzci,dt,p,u,v,w)
+    call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,.true.,1,0)
+    call chkdiv(lo,hi,nh_v,nh_g,l,dxfi,dyfi,dzfi,u,v,w,divtot,divmax)
     !$acc        update self(u,v,w,p)
     !$omp target update from(u,v,w,p)
     passed_loc = all(ieee_is_finite(u)).and.all(ieee_is_finite(v)).and. &
@@ -420,7 +433,7 @@ module mod_sanity
         call add_noise(ng,lo,123*icomponent,.5_rp,field(1:n(1),1:n(2),1:n(3)))
         !$acc        update device(field)
         !$omp target update to(    field)
-        call initsolver(is_poisson_fft,ng,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+        call initsolver(is_poisson_fft,ng,nh_g,n_x_fft,n_y_fft,lo_z,hi_z,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                         field_bc,field_values,lambdax_g,lambday_g,lambdaxy, &
                         eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,center,a,b,c,arrplan,normfft,rhsbx,rhsby,rhsbz)
         !$acc        update device(lambday_g,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c,rhsbx,rhsby,rhsbz)
@@ -431,9 +444,9 @@ module mod_sanity
         call set_cufft_wspace(pack(arrplan,.true.),istream_acc_queue_1)
 #endif
         if(icomponent <= 3) then
-          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+          call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
-          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+          call boundp(field_bc,n,nh_v,nh_g,field_values,nb,is_bound,dxc,dyc,dzc,field)
         end if
         !$acc wait
         !$acc parallel     loop collapse(3) default(present)
@@ -445,17 +458,17 @@ module mod_sanity
             end do
           end do
         end do
-        call solve_helmholtz(n,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
+        call solve_helmholtz(n,nh_v,ng,hi,is_poisson_fft,arrplan,normfft,alpha,lambday_g,lambdaxy, &
                              eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd, &
                              a,b,c,rhsbx,rhsby,rhsbz,is_bound,field_bc,center,field)
         !$acc wait
         call fftend(arrplan)
         if(icomponent <= 3) then
-          call bounduvw(cbcvel,n,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
+          call bounduvw(cbcvel,n,nh_v,nh_g,bcvel,nb,is_bound,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w)
         else
-          call boundp(field_bc,n,field_values,nb,is_bound,dxc,dyc,dzc,field)
+          call boundp(field_bc,n,nh_v,nh_g,field_values,nb,is_bound,dxc,dyc,dzc,field)
         end if
-        call chk_helmholtz(lo,hi,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,field,field_bc,is_bound,center, &
+        call chk_helmholtz(lo,hi,nh_p,nh_v,nh_g,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alphai,p,field,field_bc,is_bound,center, &
                            restot,resmax,implicit_dir)
         !$acc        update self(field,p)
         !$omp target update from(field,p)

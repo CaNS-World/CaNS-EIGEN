@@ -116,13 +116,13 @@ module mod_sanity
   end subroutine chk_stop_type
   !
   subroutine chk_dims(ng,dims,cbcvel,cbcpre,passed)
-    use mod_param, only: nscal,cbcscal
+    use mod_param, only: nscal,cbcscal,nh_g
     implicit none
     integer, intent(in) :: ng(3),dims(2)
     character(len=1), intent(in) :: cbcvel(0:1,3,3),cbcpre(0:1,3)
     logical, intent(out) :: passed
-    integer :: ii(2),idir,ivel,iscal
-    logical :: periodic
+    integer :: ii(2),ntasks(3),idir,ivel,iscal
+    logical :: periodic,passed_loc
     passed = all(ng >= 1).and.any(ipencil_axis == [1,2,3])
     if(.not.passed) then
       if(myid == 0) print*, 'ERROR: positive grid sizes and a valid pencil axis are required.'
@@ -131,6 +131,17 @@ module mod_sanity
     ii = pack([1,2,3],[1,2,3] /= ipencil_axis)
     passed = all(dims <= ng(ii)).and.all(dims >= 1)
     if(myid == 0.and..not.passed) print*, 'ERROR: process grid exceeds the physical grid.'
+    !
+    ! the halo layers are filled from a single neighbour, or mirrored about a boundary;
+    ! only a periodic direction held by a single task may have fewer cells than halo layers,
+    ! as its halo is then wrapped locally, one layer at a time (see `updthalo`)
+    !
+    ntasks(:) = 1
+    ntasks(ii(:)) = max(dims(:),1)
+    passed_loc = all(ng(:)/ntasks(:) >= nh_g.or.(cbcpre(0,:)//cbcpre(1,:) == 'PP'.and.ntasks(:) == 1))
+    if(myid == 0.and.(.not.passed_loc)) &
+      print*, 'ERROR: fewer cells per task than halo layers (nh_g) along a split or non-periodic direction.'
+    passed = passed.and.passed_loc
     do idir=1,3
       if(ng(idir) /= 1) cycle
       periodic = cbcpre(0,idir)//cbcpre(1,idir) == 'PP'

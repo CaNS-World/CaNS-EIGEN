@@ -24,7 +24,7 @@ module mod_rk
   implicit none
   public rk,rk_scal,bulk_forcing_wall_shear
   contains
-  subroutine rk(rkpar,n,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxc,dxf,dyc,dyf,dzc,dzf,dt,visc,p, &
+  subroutine rk(rkpar,n,nh_v,nh_p,nh_g,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxc,dxf,dyc,dyf,dzc,dzf,dt,visc,p, &
                 is_forced,velf,bforce,gacc,beta,scalars,dudtrko,dvdtrko,dwdtrko,u,v,w,f)
 #if defined(_OPENACC) || defined(_OPENMP)
     use mod_common_cudecomp, only: dudtrk_t => work, &
@@ -38,18 +38,19 @@ module mod_rk
     implicit none
     real(rp), intent(in   ), dimension(2)        :: rkpar
     integer , intent(in   ), dimension(3)        :: n
+    integer , intent(in   )                      :: nh_v,nh_p,nh_g
     real(rp), intent(in   ), dimension(3)        :: l
-    real(rp), intent(in   ), dimension(0:)       :: dxci,dxfi,dyci,dyfi,dzci,dzfi
-    real(rp), intent(in   ), dimension(0:)       :: dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: dxc,dxf,dyc,dyf,dzc,dzf
     real(rp), intent(in   )                      :: dt,visc
-    real(rp), intent(in   ), dimension(0:,0:,0:) :: p
+    real(rp), intent(in   ), dimension(1-nh_p:,1-nh_p:,1-nh_p:) :: p
     logical , intent(in   ), dimension(3)        :: is_forced
     real(rp), intent(in   ), dimension(3)        :: velf,bforce
     real(rp), intent(in   ), dimension(3)        :: gacc
     real(rp), intent(in   )                      :: beta
     type(scalar), intent(in   ), target, dimension(:), optional :: scalars
     real(rp), intent(inout), dimension(1:,1:,1:) :: dudtrko,dvdtrko,dwdtrko
-    real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(inout), dimension(1-nh_v:,1-nh_v:,1-nh_v:) :: u,v,w
     real(rp), intent(out  ), dimension(3)        :: f
     real(rp), pointer, contiguous, dimension(:,:,:) :: s
 #if !(defined(_OPENACC) || defined(_OPENMP))
@@ -109,7 +110,8 @@ module mod_rk
     end if
     !
     if(is_fast_mom_kernels) then
-      call mom_xyz_ad(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,dudtrk,dvdtrk,dwdtrk,dudtrkd,dvdtrkd,dwdtrkd)
+      call mom_xyz_ad(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,dudtrk,dvdtrk,dwdtrk, &
+                      dudtrkd,dvdtrkd,dwdtrkd)
     else
       !$acc parallel     loop collapse(3) default(present) async(1)
       !$omp target teams loop collapse(3)
@@ -123,9 +125,9 @@ module mod_rk
         end do
       end do
       if(impdiff_mode == impdiff_explicit) then
-        call momx_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrk)
-        call momy_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrk)
-        call momz_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrk)
+        call momx_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrk)
+        call momy_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrk)
+        call momz_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrk)
       else
         !$acc parallel     loop collapse(3) default(present) async(1)
         !$omp target teams loop collapse(3)
@@ -140,28 +142,28 @@ module mod_rk
         end do
         select case(impdiff_mode)
         case(impdiff_z)
-          call momx_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,u,dudtrk)
-          call momy_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,v,dvdtrk)
-          call momz_d_xy(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,visc,w,dwdtrk)
-          call momx_d_z( n(1),n(2),n(3),dzci,dzfi,visc,u,dudtrkd)
-          call momy_d_z( n(1),n(2),n(3),dzci,dzfi,visc,v,dvdtrkd)
-          call momz_d_z( n(1),n(2),n(3),dzci,dzfi,visc,w,dwdtrkd)
+          call momx_d_xy(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,visc,u,dudtrk)
+          call momy_d_xy(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,visc,v,dvdtrk)
+          call momz_d_xy(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,visc,w,dwdtrk)
+          call momx_d_z( n(1),n(2),n(3),nh_v,nh_g,dzci,dzfi,visc,u,dudtrkd)
+          call momy_d_z( n(1),n(2),n(3),nh_v,nh_g,dzci,dzfi,visc,v,dvdtrkd)
+          call momz_d_z( n(1),n(2),n(3),nh_v,nh_g,dzci,dzfi,visc,w,dwdtrkd)
         case(impdiff_yz)
-          call momx_d_x( n(1),n(2),n(3),dxci,dxfi,visc,u,dudtrk)
-          call momy_d_x( n(1),n(2),n(3),dxci,dxfi,visc,v,dvdtrk)
-          call momz_d_x( n(1),n(2),n(3),dxci,dxfi,visc,w,dwdtrk)
-          call momx_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
-          call momy_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
-          call momz_d_yz(n(1),n(2),n(3),dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
+          call momx_d_x( n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,visc,u,dudtrk)
+          call momy_d_x( n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,visc,v,dvdtrk)
+          call momz_d_x( n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,visc,w,dwdtrk)
+          call momx_d_yz(n(1),n(2),n(3),nh_v,nh_g,dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
+          call momy_d_yz(n(1),n(2),n(3),nh_v,nh_g,dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
+          call momz_d_yz(n(1),n(2),n(3),nh_v,nh_g,dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
         case(impdiff_xyz)
-          call momx_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
-          call momy_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
-          call momz_d(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
+          call momx_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudtrkd)
+          call momy_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdtrkd)
+          call momz_d(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdtrkd)
         end select
       end if
-      call momx_a(n(1),n(2),n(3),dxci,dxfi,dyfi,dzfi,u,v,w,dudtrk)
-      call momy_a(n(1),n(2),n(3),dxfi,dyci,dyfi,dzfi,u,v,w,dvdtrk)
-      call momz_a(n(1),n(2),n(3),dxfi,dyfi,dzci,dzfi,u,v,w,dwdtrk)
+      call momx_a(n(1),n(2),n(3),nh_v,nh_g,dxci,dxfi,dyfi,dzfi,u,v,w,dudtrk)
+      call momy_a(n(1),n(2),n(3),nh_v,nh_g,dxfi,dyci,dyfi,dzfi,u,v,w,dvdtrk)
+      call momz_a(n(1),n(2),n(3),nh_v,nh_g,dxfi,dyfi,dzci,dzfi,u,v,w,dwdtrk)
     end if
     !
 #if !defined(_LOOP_UNSWITCHING)
@@ -316,7 +318,7 @@ module mod_rk
     !
     ! compute bulk velocity forcing
     !
-    call cmpt_bulk_forcing(n,l,is_forced,velf,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,f)
+    call cmpt_bulk_forcing(n,nh_v,nh_g,l,is_forced,velf,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,f)
     forcing_u = f(1)
     forcing_v = f(2)
     forcing_w = f(3)
@@ -340,11 +342,11 @@ module mod_rk
       !
       ! apply bulk forcing
       !
-      call bulk_forcing(n,is_forced,f,u,v,w)
+      call bulk_forcing(n,nh_v,is_forced,f,u,v,w)
     end if
   end subroutine rk
   !
-  subroutine rk_scal(rkpar,n,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxf,dyf,dzf,alpha,dt,is_bound,u,v,w, &
+  subroutine rk_scal(rkpar,n,nh_v,nh_s,nh_g,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,dxf,dyf,dzf,alpha,dt,is_bound,u,v,w, &
                      is_forced,scalf,ssource,fluxo,dsdtrko,s,f)
 #if defined(_OPENACC) || defined(_OPENMP)
     use mod_common_cudecomp, only: dsdtrk_t => work
@@ -357,17 +359,18 @@ module mod_rk
     logical , parameter :: is_cmpt_wallflux = .false.
     real(rp), intent(in   ), dimension(2) :: rkpar
     integer , intent(in   ), dimension(3) :: n
+    integer , intent(in   )               :: nh_v,nh_s,nh_g
     real(rp), intent(in   ), dimension(3) :: l
-    real(rp), intent(in   ), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
-    real(rp), intent(in   ), dimension(0:) :: dxf,dyf,dzf
+    real(rp), intent(in   ), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    real(rp), intent(in   ), dimension(1-nh_g:) :: dxf,dyf,dzf
     real(rp), intent(in   ) :: alpha,dt
     logical , intent(in   ), dimension(0:1,3)    :: is_bound
-    real(rp), intent(in   ), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(in   ), dimension(1-nh_v:,1-nh_v:,1-nh_v:) :: u,v,w
     logical , intent(in   ) :: is_forced
     real(rp), intent(in   ) :: scalf,ssource
     real(rp), intent(inout), dimension(0:1,3) :: fluxo
     real(rp), intent(inout), dimension(1:,1:,1:) :: dsdtrko
-    real(rp), intent(inout), dimension(0:,0:,0:) :: s
+    real(rp), intent(inout), dimension(1-nh_s:,1-nh_s:,1-nh_s:) :: s
     real(rp), intent(out  ) :: f
     !
 #if !(defined(_OPENACC) || defined(_OPENMP))
@@ -420,7 +423,7 @@ module mod_rk
     dsdtrk => dsdtrk_t
 #endif
     !
-    call scal(n(1),n(2),n(3),dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,u,v,w,s,dsdtrk,dsdtrkd)
+    call scal(n(1),n(2),n(3),nh_v,nh_s,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,u,v,w,s,dsdtrk,dsdtrkd)
 #if !defined(_LOOP_UNSWITCHING)
     !$acc parallel     loop collapse(3) default(present) async(1)
     !$omp target teams loop collapse(3)
@@ -462,7 +465,7 @@ module mod_rk
     ! compute wall scalar flux
     !
     if(is_cmpt_wallflux) then
-      call cmpt_scalflux(n,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,s(:,:,:),flux)
+      call cmpt_scalflux(n,nh_s,nh_g,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,alpha,s(:,:,:),flux)
       f = (factor1*sum((flux( 0,:)+flux( 1,:))/l(:)) + &
            factor2*sum((fluxo(0,:)+fluxo(1,:))/l(:)))
       fluxo(:,:) = flux(:,:)
@@ -471,7 +474,7 @@ module mod_rk
     ! bulk scalar forcing
     !
     if(is_forced) then
-      call bulk_mean(n,l,dxf,dyf,dzf,s(:,:,:),mean)
+      call bulk_mean(n,nh_s,nh_g,l,dxf,dyf,dzf,s(:,:,:),mean)
       f = scalf - mean
     end if
     if(impdiff_mode /= impdiff_explicit) then
@@ -503,14 +506,15 @@ module mod_rk
     end do
   end subroutine rk_scal
   !
-  subroutine cmpt_bulk_forcing(n,l,is_forced,velf,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,f)
+  subroutine cmpt_bulk_forcing(n,nh,nh_g,l,is_forced,velf,dxc,dxf,dyc,dyf,dzc,dzf,u,v,w,f)
     implicit none
     integer , intent(in   ), dimension(3) :: n
+    integer , intent(in   )               :: nh,nh_g
     real(rp), intent(in   ), dimension(3) :: l
     logical , intent(in   ), dimension(3) :: is_forced
     real(rp), intent(in   ), dimension(3) :: velf
-    real(rp), intent(in   ), dimension(0:) :: dxc,dxf,dyc,dyf,dzc,dzf
-    real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(in   ), dimension(1-nh_g:) :: dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: u,v,w
     real(rp), intent(out  ), dimension(3) :: f
     real(rp) :: mean
     !
@@ -518,20 +522,20 @@ module mod_rk
     !
     f(:) = 0.
     if(is_forced(1)) then
-      call bulk_mean(n,l,dxc,dyf,dzf,u,mean)
+      call bulk_mean(n,nh,nh_g,l,dxc,dyf,dzf,u,mean)
       f(1) = velf(1) - mean
     end if
     if(is_forced(2)) then
-      call bulk_mean(n,l,dxf,dyc,dzf,v,mean)
+      call bulk_mean(n,nh,nh_g,l,dxf,dyc,dzf,v,mean)
       f(2) = velf(2) - mean
     end if
     if(is_forced(3)) then
-      call bulk_mean(n,l,dxf,dyf,dzc,w,mean)
+      call bulk_mean(n,nh,nh_g,l,dxf,dyf,dzc,w,mean)
       f(3) = velf(3) - mean
     end if
   end subroutine cmpt_bulk_forcing
   !
-  subroutine bulk_forcing_wall_shear(irk,rkpar,dt,n,ng,lo,l,dxci,dxfi,dyci,dyfi,dzci,dzfi, &
+  subroutine bulk_forcing_wall_shear(irk,rkpar,dt,n,nh,nh_g,ng,lo,l,dxci,dxfi,dyci,dyfi,dzci,dzfi, &
                                      dxc,dxf,dyc,dyf,dzc,dzf,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                                      visc,is_bound,is_forced,velf,bforce,tau,tauo,u,v,w,f)
     !
@@ -547,7 +551,7 @@ module mod_rk
     ! which can counter a slow drift of the bulk velocity due to round-off errors, at the cost of one
     ! volume average per time step
     !
-    use mod_bound, only: set_bc
+    use mod_bound, only: set_bc,bc_dist
     use mod_param, only: cbcvel,bcvel,cbcpre
     implicit none
     real(rp), parameter :: relax_time = 0.
@@ -555,16 +559,17 @@ module mod_rk
     real(rp), intent(in   ), dimension(2)        :: rkpar
     real(rp), intent(in   )                      :: dt
     integer , intent(in   ), dimension(3)        :: n,ng,lo
+    integer , intent(in   )                      :: nh,nh_g
     real(rp), intent(in   ), dimension(3)        :: l
-    real(rp), intent(in   ), dimension(0:)       :: dxci,dxfi,dyci,dyfi,dzci,dzfi
-    real(rp), intent(in   ), dimension(0:)       :: dxc,dxf,dyc,dyf,dzc,dzf
-    real(rp), intent(in   ), dimension(0:)       :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     real(rp), intent(in   )                      :: visc
     logical , intent(in   ), dimension(0:1,3)    :: is_bound
     logical , intent(in   ), dimension(3)        :: is_forced
     real(rp), intent(in   ), dimension(3)        :: velf,bforce
     real(rp), intent(in   ), dimension(0:1,3,3)  :: tau,tauo
-    real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: u,v,w
     real(rp), intent(out  ), dimension(3)        :: f
     real(rp), dimension(3), save :: ubulk
     logical , save :: is_ubulk = .false.
@@ -574,7 +579,7 @@ module mod_rk
     real(rp), dimension(0:1,3,3) :: tau_i
     real(rp), dimension(3,3) :: tw,two
     real(rp), dimension(3) :: db
-    real(rp), dimension(0:1) :: dr
+    real(rp), allocatable, dimension(:,:,:), save :: dr
     real(rp) :: factor1,factor2,factor12,alpha
     logical , dimension(3) :: is_w
     integer :: idir,ib
@@ -604,7 +609,7 @@ module mod_rk
         if(.not.is_forced(idir)) cycle
         f(idir) = db(idir) - factor12*bforce(idir) + (factor1*sum(tw(:,idir)) + factor2*sum(two(:,idir)))
       end do
-      call bulk_forcing(n,is_forced,f,u,v,w)
+      call bulk_forcing(n,nh,is_forced,f,u,v,w)
     else
       if(.not.allocated(gg)) then
         allocate(gg(merge(n(1),1,is_w(1)),merge(n(2),1,is_w(2)),merge(n(3),1,is_w(3)),3))
@@ -614,32 +619,33 @@ module mod_rk
       alpha = -.5*visc*(sum(rkpar(:))*dt) ! as in the main program
       if(abs(alpha-alpha_s(irk)) > 0.) then
         alpha_s(irk) = alpha
-        call cmpt_unit_response(alpha,n,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
+        call cmpt_unit_response(alpha,n,nh_g,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g, &
                                 gg(:,:,:,irk),gmean_s(irk))
         !$acc        update device(gg(:,:,:,irk)) async(1)
         !$omp target update to(    gg(:,:,:,irk))
       end if
       !
       ! wall shear of the unforced solution, with the ghost values set from the boundary conditions
+      ! (`dr` -> mirror distances, computed once)
       !
+      if(.not.allocated(dr)) then
+        allocate(dr(0:nh,0:1,3))
+        do ib=0,1
+          dr(:,ib,1) = bc_dist(n(1),nh,nh_g,ib,.true.,dxc)
+          dr(:,ib,2) = bc_dist(n(2),nh,nh_g,ib,.true.,dyc)
+          dr(:,ib,3) = bc_dist(n(3),nh,nh_g,ib,.true.,dzc)
+        end do
+      end if
       do idir=1,3
         if(.not.is_w(idir)) cycle
-        select case(idir)
-        case(1)
-          dr(:) = [dxc(0),dxc(n(1))]
-        case(2)
-          dr(:) = [dyc(0),dyc(n(2))]
-        case(3)
-          dr(:) = [dzc(0),dzc(n(3))]
-        end select
         do ib=0,1
           if(.not.is_bound(ib,idir)) cycle
-          if(is_forced(1)) call set_bc(cbcvel(ib,idir,1),ib,idir,1,.true.,bcvel(ib,idir,1),dr(ib),u)
-          if(is_forced(2)) call set_bc(cbcvel(ib,idir,2),ib,idir,1,.true.,bcvel(ib,idir,2),dr(ib),v)
-          if(is_forced(3)) call set_bc(cbcvel(ib,idir,3),ib,idir,1,.true.,bcvel(ib,idir,3),dr(ib),w)
+          if(is_forced(1)) call set_bc(cbcvel(ib,idir,1),ib,idir,nh,.true.,bcvel(ib,idir,1),dr(:,ib,idir),u)
+          if(is_forced(2)) call set_bc(cbcvel(ib,idir,2),ib,idir,nh,.true.,bcvel(ib,idir,2),dr(:,ib,idir),v)
+          if(is_forced(3)) call set_bc(cbcvel(ib,idir,3),ib,idir,nh,.true.,bcvel(ib,idir,3),dr(:,ib,idir),w)
         end do
       end do
-      call cmpt_wallshear(n,is_forced,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
+      call cmpt_wallshear(n,nh,nh_g,is_forced,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
                           tau_i(:,:,1),tau_i(:,:,2),tau_i(:,:,3))
       do idir=1,3
         if(.not.is_forced(idir)) cycle
@@ -647,23 +653,24 @@ module mod_rk
                    sum(merge(.5*factor12*(tw(:,idir) + sum(tau_i(:,:,idir),1)/l(:)), &
                              factor1*tw(:,idir) + factor2*two(:,idir),is_w(:))))/gmean_s(irk)
       end do
-      if(is_forced(1)) call add_response(n,f(1),gg(:,:,:,irk),u)
-      if(is_forced(2)) call add_response(n,f(2),gg(:,:,:,irk),v)
-      if(is_forced(3)) call add_response(n,f(3),gg(:,:,:,irk),w)
+      if(is_forced(1)) call add_response(n,nh,f(1),gg(:,:,:,irk),u)
+      if(is_forced(2)) call add_response(n,nh,f(2),gg(:,:,:,irk),v)
+      if(is_forced(3)) call add_response(n,nh,f(3),gg(:,:,:,irk),w)
     end if
     if(relax_time > 0..and.irk == 3) then
-      if(is_forced(1)) call bulk_mean(n,l,dxc,dyf,dzf,u,ubulk(1))
-      if(is_forced(2)) call bulk_mean(n,l,dxf,dyc,dzf,v,ubulk(2))
-      if(is_forced(3)) call bulk_mean(n,l,dxf,dyf,dzc,w,ubulk(3))
+      if(is_forced(1)) call bulk_mean(n,nh,nh_g,l,dxc,dyf,dzf,u,ubulk(1))
+      if(is_forced(2)) call bulk_mean(n,nh,nh_g,l,dxf,dyc,dzf,v,ubulk(2))
+      if(is_forced(3)) call bulk_mean(n,nh,nh_g,l,dxf,dyf,dzc,w,ubulk(3))
       is_ubulk = .true.
     end if
   contains
-    subroutine add_response(n,ff,gg,p)
+    subroutine add_response(n,nh,ff,gg,p)
       implicit none
       integer , intent(in   ), dimension(3)        :: n
+      integer , intent(in   )                      :: nh
       real(rp), intent(in   )                      :: ff
       real(rp), intent(in   ), dimension(:,:,:)    :: gg
-      real(rp), intent(inout), dimension(0:,0:,0:) :: p
+      real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
       integer :: i,j,k,ni,nj,nk
       !
       ! `gg` has extent 1 along the directions where the response is uniform
@@ -681,7 +688,7 @@ module mod_rk
     end subroutine add_response
   end subroutine bulk_forcing_wall_shear
   !
-  subroutine cmpt_unit_response(alpha,n,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,g,gmean)
+  subroutine cmpt_unit_response(alpha,n,nh,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,g,gmean)
     !
     ! response to a uniform unit forcing, (1 + alpha*lap_W) g = 1, with homogeneous Dirichlet conditions
     ! along the directions W where `is_w` is true (one or two), solved on the global grid; returns the
@@ -695,9 +702,10 @@ module mod_rk
     implicit none
     real(rp), intent(in ) :: alpha
     integer , intent(in ), dimension(3)     :: n,ng,lo
+    integer , intent(in )                   :: nh
     real(rp), intent(in ), dimension(3)     :: l
     logical , intent(in ), dimension(3)     :: is_w
-    real(rp), intent(in ), dimension(0:)    :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
+    real(rp), intent(in ), dimension(1-nh:) :: dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g
     real(rp), intent(out), dimension(:,:,:) :: g
     real(rp), intent(out)                   :: gmean
     real(rp), allocatable, dimension(:)  , save :: lambda_a,r_a,s_a
@@ -712,7 +720,7 @@ module mod_rk
     call grid_g(ia,dci_a,dfi_a)
     if(size(iw) == 1) then
       allocate(a(na),b(na),c(na),gl(na))
-      call tridmatrix(['D','D'],na,dci_a,dfi_a,'c',.false.,a,b,c)
+      call tridmatrix(['D','D'],na,nh,dci_a,dfi_a,'c',.false.,a,b,c)
       gl(:) = 1.
       call solve_tridiag(alpha*a,1.+alpha*b,alpha*c,gl)
       gmean = sum(gl(:)/dfi_a(1:na))/l(ia)
@@ -722,13 +730,13 @@ module mod_rk
       call grid_g(ib,dci_b,dfi_b)
       if(.not.allocated(lambda_a)) then
         allocate(lambda_a(na),r_a(na),s_a(na),vfwd(na,na),vbwd(na,na))
-        call init_eigendecomp_axis(na,dci_a,dfi_a,1./dci_a,1./dfi_a,['D','D'],'c',lambda_a,vfwd,vbwd)
+        call init_eigendecomp_axis(na,nh,dci_a,dfi_a,1./dci_a,1./dfi_a,['D','D'],'c',lambda_a,vfwd,vbwd)
         r_a(:) = sum(vfwd(:,:),2)
         s_a(:) = matmul(1./dfi_a(1:na),vbwd(:,:))
         vbwd_a = vbwd(lo(ia):lo(ia)-1+n(ia),:)
       end if
       allocate(a(nb),b(nb),c(nb),gh(nb,na),gp(n(ia),n(ib)))
-      call tridmatrix(['D','D'],nb,dci_b,dfi_b,'c',.false.,a,b,c)
+      call tridmatrix(['D','D'],nb,nh,dci_b,dfi_b,'c',.false.,a,b,c)
       do m=1,na
         gh(:,m) = r_a(m)
         call solve_tridiag(alpha*a,1.+alpha*(b+lambda_a(m)),alpha*c,gh(:,m))

@@ -13,7 +13,7 @@ module mod_initflow
   private
   public initflow,initscal,add_noise
   contains
-  subroutine initflow(inivel,cbcvel,bcvel,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+  subroutine initflow(inivel,cbcvel,bcvel,ng,lo,nh_v,nh_p,nh_g,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
                       visc,is_forced,velf,bforce,is_wallturb,u,v,w,p)
     !
     ! computes initial conditions for the velocity field
@@ -23,13 +23,15 @@ module mod_initflow
     character(len=1), intent(in), dimension(0:1,3,3) :: cbcvel
     real(rp), intent(in), dimension(0:1,3,3) :: bcvel
     integer , intent(in), dimension(3) :: ng,lo
+    integer , intent(in)               :: nh_v,nh_p,nh_g
     real(rp), intent(in), dimension(3) :: l
-    real(rp), intent(in), dimension(0:) :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(in), dimension(1-nh_g:) :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
     real(rp), intent(in)               :: visc
     logical , intent(in), dimension(3) :: is_forced
     real(rp), intent(in), dimension(3) :: velf,bforce
     logical , intent(in)               :: is_wallturb
-    real(rp), target, dimension(0:,0:,0:), intent(inout) :: u,v,w,p
+    real(rp), target, dimension(1-nh_v:,1-nh_v:,1-nh_v:), intent(inout) :: u,v,w
+    real(rp), target, dimension(1-nh_p:,1-nh_p:,1-nh_p:), intent(inout) :: p
     real(rp), pointer, dimension(:,:,:) :: us,ut,un
     real(rp), allocatable, dimension(:) :: u1d_n,u1d_t,rn,rt,rs,rft,rfn
     character(len=len(inivel)) :: ini
@@ -41,7 +43,7 @@ module mod_initflow
     real(rp), dimension(3) :: xyz_c,xyz_f,vel
     integer, dimension(3) :: n,ii
     !
-    n(:) = shape(p) - 2*1
+    n(:) = shape(p) - 2*nh_p
     ini = inivel
     isuffix = len_trim(ini)
     idir_s = 1
@@ -233,11 +235,11 @@ module mod_initflow
     if(is_mean) then
       select case(idir_s)
       case(1)
-        call set_mean(n,ubulk,dxc,dyf,dzf,l,us(1:n(1),1:n(2),1:n(3)))
+        call set_mean(n,nh_g,ubulk,dxc,dyf,dzf,l,us(1:n(1),1:n(2),1:n(3)))
       case(2)
-        call set_mean(n,ubulk,dxf,dyc,dzf,l,us(1:n(1),1:n(2),1:n(3)))
+        call set_mean(n,nh_g,ubulk,dxf,dyc,dzf,l,us(1:n(1),1:n(2),1:n(3)))
       case(3)
-        call set_mean(n,ubulk,dxf,dyf,dzc,l,us(1:n(1),1:n(2),1:n(3)))
+        call set_mean(n,nh_g,ubulk,dxf,dyf,dzc,l,us(1:n(1),1:n(2),1:n(3)))
       end select
       if(trim(ini) == 'iop') us(1:n(1),1:n(2),1:n(3)) = us(1:n(1),1:n(2),1:n(3)) - ubulk
     end if
@@ -324,7 +326,7 @@ module mod_initflow
     end if
   end subroutine initflow
   !
-  subroutine initscal(iniscal,bcscal,ng,lo,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
+  subroutine initscal(iniscal,bcscal,ng,lo,nh,nh_g,l,xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf, &
                       salpha,is_sforced,scalf,s)
     !
     ! computes initial conditions for the scalar field
@@ -333,12 +335,13 @@ module mod_initflow
     character(len=3), intent(in)                 :: iniscal
     real(rp), intent(in   ), dimension(0:1,3)    :: bcscal
     integer , intent(in   ), dimension(3)        :: ng,lo
+    integer , intent(in   )                      :: nh,nh_g
     real(rp), intent(in   ), dimension(3)        :: l
-    real(rp), intent(in   ), dimension(0:)       :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
+    real(rp), intent(in   ), dimension(1-nh_g:)  :: xc,xf,yc,yf,zc,zf,dxc,dxf,dyc,dyf,dzc,dzf
     real(rp), intent(in   )                      :: salpha
     logical , intent(in   )                      :: is_sforced
     real(rp), intent(in   )                      :: scalf
-    real(rp), intent(inout), dimension(0:,0:,0:) :: s
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: s
     real(rp), allocatable, dimension(:) :: s1d
     integer :: i,j,k
     logical :: is_noise,is_mean
@@ -346,7 +349,7 @@ module mod_initflow
     integer, dimension(3) :: n
     real(rp) :: xx
     !
-    n(:) = shape(s) - 2*1
+    n(:) = shape(s) - 2*nh
     allocate(s1d(n(3)))
     is_noise = .false.
     is_mean  = .false.
@@ -359,7 +362,7 @@ module mod_initflow
     case('uni')
       s1d(:) = sref
     case('cou')
-      call couette(   n(3),zc/l(3),1._rp,s1d)
+      call couette(   n(3),zc(0:n(3)+1)/l(3),1._rp,s1d)
       s1d(:) = s1d(:) + 0.5 ! from 1 to 0
       s1d(:) = bcscal(0,3)*(s1d(:)) + bcscal(1,3)*(1.-s1d(:))
       sref = abs(bcscal(1,3) - bcscal(0,3))
@@ -367,7 +370,7 @@ module mod_initflow
       s1d(:) = 0._rp
     case('tbl')
       sref = 1.
-      call temporal_bl(n(3),zc,1._rp,salpha,sref,s1d)
+      call temporal_bl(n(3),zc(0:n(3)+1),1._rp,salpha,sref,s1d)
       is_noise = .true.
     case default
       if(myid == 0) print*, 'ERROR: invalid name for initial scalar field'
@@ -401,7 +404,7 @@ module mod_initflow
       call add_noise(ng,lo,123,.05_rp,s(1:n(1),1:n(2),1:n(3)))
     end if
     if(is_mean) then
-      call set_mean(n,sref,dxf,dyf,dzf,l,s(1:n(1),1:n(2),1:n(3)))
+      call set_mean(n,nh_g,sref,dxf,dyf,dzf,l,s(1:n(1),1:n(2),1:n(3)))
     end if
   end subroutine initscal
   !
@@ -437,11 +440,12 @@ module mod_initflow
     end do
   end subroutine add_noise
   !
-  subroutine set_mean(n,mean,dx,dy,dz,l,p)
+  subroutine set_mean(n,nh,mean,dx,dy,dz,l,p)
   implicit none
   integer , intent(in), dimension(3) :: n
+  integer , intent(in)               :: nh
   real(rp), intent(in) :: mean
-  real(rp), intent(in), dimension(0:) :: dx,dy,dz
+  real(rp), intent(in), dimension(1-nh:) :: dx,dy,dz
   real(rp), intent(in), dimension(3) :: l
   real(rp), intent(inout), dimension(:,:,:) :: p
   real(rp) :: vol,meanold

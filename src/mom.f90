@@ -22,12 +22,13 @@ module mod_mom
          mom_xyz_ad
   contains
   !
-  subroutine momx_a(nx,ny,nz,dxci,dyfi,dzfi,u,v,w,dudt)
+  subroutine momx_a(nx,ny,nz,nh,nh_g,dxci,dyfi,dzfi,u,v,w,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dyfi,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dyfi,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     integer :: i,j,k
     real(rp) :: uuip,uuim,vujp,vujm,wukp,wukm
     !
@@ -54,12 +55,13 @@ module mod_mom
     end do
   end subroutine momx_a
   !
-  subroutine momy_a(nx,ny,nz,dxfi,dyci,dzfi,u,v,w,dvdt)
+  subroutine momy_a(nx,ny,nz,nh,nh_g,dxfi,dyci,dzfi,u,v,w,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxfi,dyci,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxfi,dyci,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     integer :: i,j,k
     real(rp) :: uvip,uvim,vvjp,vvjm,wvkp,wvkm
     !
@@ -86,12 +88,13 @@ module mod_mom
     end do
   end subroutine momy_a
   !
-  subroutine momz_a(nx,ny,nz,dxfi,dyfi,dzci,u,v,w,dwdt)
+  subroutine momz_a(nx,ny,nz,nh,nh_g,dxfi,dyfi,dzci,u,v,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxfi,dyfi,dzci
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxfi,dyfi,dzci
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     integer :: i,j,k
     real(rp) :: uwip,uwim,vwjp,vwjm,wwkp,wwkm
     !
@@ -118,15 +121,16 @@ module mod_mom
     end do
   end subroutine momz_a
   !
-  subroutine momx_a_vv(nx,ny,nz,dxci,dxfi,dyfi,dzfi,u,v,w,dudt)
+  subroutine momx_a_vv(nx,ny,nz,nh,nh_g,dxci,dxfi,dyfi,dzfi,u,v,w,dudt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyfi,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyfi,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     integer :: i,j,k
     real(rp) :: uuip,uuim,vujp,vujm,wukp,wukm
     real(rp), allocatable, dimension(:), save :: rdxm,rdxp
@@ -164,15 +168,16 @@ module mod_mom
     end do
   end subroutine momx_a_vv
   !
-  subroutine momy_a_vv(nx,ny,nz,dxfi,dyci,dyfi,dzfi,u,v,w,dvdt)
+  subroutine momy_a_vv(nx,ny,nz,nh,nh_g,dxfi,dyci,dyfi,dzfi,u,v,w,dvdt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxfi,dyci,dyfi,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxfi,dyci,dyfi,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     integer :: i,j,k
     real(rp) :: uvip,uvim,vvjp,vvjm,wvkp,wvkm
     real(rp), allocatable, dimension(:), save :: rdym,rdyp
@@ -210,15 +215,16 @@ module mod_mom
     end do
   end subroutine momy_a_vv
   !
-  subroutine momz_a_vv(nx,ny,nz,dxfi,dyfi,dzci,dzfi,u,v,w,dwdt)
+  subroutine momz_a_vv(nx,ny,nz,nh,nh_g,dxfi,dyfi,dzci,dzfi,u,v,w,dwdt)
     !
     ! symmetry-preserving momentum advection (VV: Verstappen & Veldman)
     !
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxfi,dyfi,dzci,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u,v,w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxfi,dyfi,dzci,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u,v,w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     integer :: i,j,k
     real(rp) :: uwip,uwim,vwjp,vwjm,wwkp,wwkm
     real(rp), allocatable, dimension(:), save :: rdzm,rdzp
@@ -256,13 +262,14 @@ module mod_mom
     end do
   end subroutine momz_a_vv
   !
-  subroutine momx_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudt)
+  subroutine momx_d(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
+    integer , intent(in) :: nh,nh_g
     real(rp), intent(in) :: visc
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     real(rp) :: dudxp,dudxm,dudyp,dudym,dudzp,dudzm
     integer :: i,j,k
     !
@@ -286,13 +293,14 @@ module mod_mom
     end do
   end subroutine momx_d
   !
-  subroutine momy_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
+  subroutine momy_d(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: v
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     real(rp) :: dvdxp,dvdxm,dvdyp,dvdym,dvdzp,dvdzm
     integer :: i,j,k
     !
@@ -316,13 +324,14 @@ module mod_mom
     end do
   end subroutine momy_d
   !
-  subroutine momz_d(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
+  subroutine momz_d(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     integer :: i,j,k
     real(rp) :: dwdxp,dwdxm,dwdyp,dwdym,dwdzp,dwdzm
     !
@@ -346,13 +355,14 @@ module mod_mom
     end do
   end subroutine momz_d
   !
-  subroutine momx_p(nx,ny,nz,dxci,bforce,p,dudt)
+  subroutine momx_p(nx,ny,nz,nh,nh_g,dxci,bforce,p,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci
     real(rp), intent(in) :: bforce
-    real(rp), dimension(0:,0:,0:), intent(in ) :: p
-    real(rp), dimension( :, :, :), intent(out) :: dudt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in ) :: p
+    real(rp), dimension(    :,    :,    :), intent(out) :: dudt
     integer :: i,j,k
     !
     !$acc parallel     loop collapse(3) default(present) async(1)
@@ -366,13 +376,14 @@ module mod_mom
     end do
   end subroutine momx_p
   !
-  subroutine momy_p(nx,ny,nz,dyci,bforce,p,dvdt)
+  subroutine momy_p(nx,ny,nz,nh,nh_g,dyci,bforce,p,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dyci
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dyci
     real(rp), intent(in) :: bforce
-    real(rp), dimension(0:,0:,0:), intent(in ) :: p
-    real(rp), dimension( :, :, :), intent(out) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in ) :: p
+    real(rp), dimension(    :,    :,    :), intent(out) :: dvdt
     integer :: i,j,k
     !
     !$acc parallel     loop collapse(3) default(present) async(1)
@@ -386,13 +397,14 @@ module mod_mom
     end do
   end subroutine momy_p
   !
-  subroutine momz_p(nx,ny,nz,dzci,bforce,p,dwdt)
+  subroutine momz_p(nx,ny,nz,nh,nh_g,dzci,bforce,p,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dzci
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dzci
     real(rp), intent(in) :: bforce
-    real(rp), dimension(0:,0:,0:), intent(in ) :: p
-    real(rp), dimension( :, :, :), intent(out) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in ) :: p
+    real(rp), dimension(    :,    :,    :), intent(out) :: dwdt
     integer :: i,j,k
     !
     !$acc parallel     loop collapse(3) default(present) async(1)
@@ -406,13 +418,14 @@ module mod_mom
     end do
   end subroutine momz_p
   !
-  subroutine momx_d_z(nx,ny,nz,dzci,dzfi,visc,u,dudt)
+  subroutine momx_d_z(nx,ny,nz,nh,nh_g,dzci,dzfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     real(rp) :: dudzp,dudzm
     integer :: i,j,k
     !
@@ -430,13 +443,14 @@ module mod_mom
     end do
   end subroutine momx_d_z
   !
-  subroutine momy_d_z(nx,ny,nz,dzci,dzfi,visc,v,dvdt)
+  subroutine momy_d_z(nx,ny,nz,nh,nh_g,dzci,dzfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: v
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     real(rp) :: dvdzp,dvdzm
     integer :: i,j,k
     !
@@ -454,13 +468,14 @@ module mod_mom
     end do
   end subroutine momy_d_z
   !
-  subroutine momz_d_z(nx,ny,nz,dzci,dzfi,visc,w,dwdt)
+  subroutine momz_d_z(nx,ny,nz,nh,nh_g,dzci,dzfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     integer :: i,j,k
     real(rp) :: dwdzp,dwdzm
     !
@@ -478,13 +493,14 @@ module mod_mom
     end do
   end subroutine momz_d_z
   !
-  subroutine momx_d_x(nx,ny,nz,dxci,dxfi,visc,u,dudt)
+  subroutine momx_d_x(nx,ny,nz,nh,nh_g,dxci,dxfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     real(rp) :: dudxp,dudxm
     integer :: i,j,k
     !
@@ -501,13 +517,14 @@ module mod_mom
     end do
   end subroutine momx_d_x
   !
-  subroutine momy_d_x(nx,ny,nz,dxci,dxfi,visc,v,dvdt)
+  subroutine momy_d_x(nx,ny,nz,nh,nh_g,dxci,dxfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: v
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     real(rp) :: dvdxp,dvdxm
     integer :: i,j,k
     !
@@ -524,13 +541,14 @@ module mod_mom
     end do
   end subroutine momy_d_x
   !
-  subroutine momz_d_x(nx,ny,nz,dxci,dxfi,visc,w,dwdt)
+  subroutine momz_d_x(nx,ny,nz,nh,nh_g,dxci,dxfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     real(rp) :: dwdxp,dwdxm
     integer :: i,j,k
     !
@@ -547,13 +565,14 @@ module mod_mom
     end do
   end subroutine momz_d_x
   !
-  subroutine momx_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,u,dudt)
+  subroutine momx_d_yz(nx,ny,nz,nh,nh_g,dyci,dyfi,dzci,dzfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     real(rp) :: dudyp,dudym,dudzp,dudzm
     integer :: i,j,k
     !
@@ -574,13 +593,14 @@ module mod_mom
     end do
   end subroutine momx_d_yz
   !
-  subroutine momy_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
+  subroutine momy_d_yz(nx,ny,nz,nh,nh_g,dyci,dyfi,dzci,dzfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: v
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     real(rp) :: dvdyp,dvdym,dvdzp,dvdzm
     integer :: i,j,k
     !
@@ -601,13 +621,14 @@ module mod_mom
     end do
   end subroutine momy_d_yz
   !
-  subroutine momz_d_yz(nx,ny,nz,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
+  subroutine momz_d_yz(nx,ny,nz,nh,nh_g,dyci,dyfi,dzci,dzfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dyci,dyfi,dzci,dzfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dyci,dyfi,dzci,dzfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     real(rp) :: dwdyp,dwdym,dwdzp,dwdzm
     integer :: i,j,k
     !
@@ -628,13 +649,14 @@ module mod_mom
     end do
   end subroutine momz_d_yz
   !
-  subroutine momx_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,u,dudt)
+  subroutine momx_d_xy(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,visc,u,dudt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: u
-    real(rp), dimension( :, :, :), intent(inout) :: dudt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: u
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dudt
     real(rp) :: dudxp,dudxm,dudyp,dudym
     integer :: i,j,k
     !
@@ -655,13 +677,14 @@ module mod_mom
     end do
   end subroutine momx_d_xy
   !
-  subroutine momy_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,v,dvdt)
+  subroutine momy_d_xy(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,visc,v,dvdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: v
-    real(rp), dimension( :, :, :), intent(inout) :: dvdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: v
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dvdt
     real(rp) :: dvdxp,dvdxm,dvdyp,dvdym
     integer :: i,j,k
     !
@@ -682,13 +705,14 @@ module mod_mom
     end do
   end subroutine momy_d_xy
   !
-  subroutine momz_d_xy(nx,ny,nz,dxci,dxfi,dyci,dyfi,visc,w,dwdt)
+  subroutine momz_d_xy(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,visc,w,dwdt)
     implicit none
     integer , intent(in) :: nx,ny,nz
-    real(rp), intent(in), dimension(0:) :: dxci,dxfi,dyci,dyfi
+    integer , intent(in) :: nh,nh_g
+    real(rp), intent(in), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi
     real(rp), intent(in) :: visc
-    real(rp), dimension(0:,0:,0:), intent(in   ) :: w
-    real(rp), dimension( :, :, :), intent(inout) :: dwdt
+    real(rp), dimension(1-nh:,1-nh:,1-nh:), intent(in   ) :: w
+    real(rp), dimension(    :,    :,    :), intent(inout) :: dwdt
     integer :: i,j,k
     real(rp) :: dwdxp,dwdxm,dwdyp,dwdym
     !
@@ -709,7 +733,7 @@ module mod_mom
     end do
   end subroutine momz_d_xy
   !
-  subroutine cmpt_wallshear(n,is_cmpt,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,taux,tauy,tauz)
+  subroutine cmpt_wallshear(n,nh,nh_g,is_cmpt,is_bound,l,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w,taux,tauy,tauz)
     !
     ! wall shear stresses of the velocity components where `is_cmpt` is true, averaged over each
     ! wall; e.g., taux(0:1,idir) for u at the two walls normal to idir (zero along periodic directions)
@@ -717,12 +741,13 @@ module mod_mom
     use mod_param, only: cbcpre
     implicit none
     integer , intent(in ), dimension(3) :: n
+    integer , intent(in )               :: nh,nh_g
     logical , intent(in ), dimension(    3) :: is_cmpt
     logical , intent(in ), dimension(0:1,3) :: is_bound
     real(rp), intent(in ), dimension(3)     :: l
-    real(rp), intent(in ), dimension(0:)    :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    real(rp), intent(in ), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in )                   :: visc
-    real(rp), intent(in ), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(in ), dimension(1-nh:,1-nh:,1-nh:) :: u,v,w
     real(rp), intent(out), dimension(0:1,3) :: taux,tauy,tauz
     real(rp) :: dudyp,dudym,dudzp,dudzm, &
                 dvdxp,dvdxm,dvdzp,dvdzm, &
@@ -900,12 +925,13 @@ module mod_mom
     tauz(:,:) = tau(:,:,3)
   end subroutine cmpt_wallshear
   !
-  subroutine bulk_forcing(n,is_forced,f,u,v,w)
+  subroutine bulk_forcing(n,nh,is_forced,f,u,v,w)
     implicit none
     integer , intent(in   ), dimension(3) :: n
+    integer , intent(in   )               :: nh
     logical , intent(in   ), dimension(3) :: is_forced
     real(rp), intent(in   ), dimension(3) :: f
-    real(rp), intent(inout), dimension(0:,0:,0:) :: u,v,w
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: u,v,w
     real(rp) :: ff
     integer  :: i,j,k
     if(is_forced(1)) then
@@ -946,7 +972,7 @@ module mod_mom
     end if
   end subroutine bulk_forcing
   !
-  subroutine mom_xyz_ad(nx,ny,nz,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
+  subroutine mom_xyz_ad(nx,ny,nz,nh,nh_g,dxci,dxfi,dyci,dyfi,dzci,dzfi,visc,u,v,w, &
                         dudt,dvdt,dwdt,dudtd,dvdtd,dwdtd)
     use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,impdiff_xyz
     !
@@ -954,11 +980,12 @@ module mod_mom
     !
     implicit none
     integer , intent(in   ) :: nx,ny,nz
-    real(rp), intent(in   ), dimension(0:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
+    integer , intent(in   ) :: nh,nh_g
+    real(rp), intent(in   ), dimension(1-nh_g:) :: dxci,dxfi,dyci,dyfi,dzci,dzfi
     real(rp), intent(in   ) :: visc
-    real(rp), intent(in   ), dimension(0:,0:,0:) :: u,v,w
-    real(rp), intent(inout), dimension( :, :, :) :: dudt,dvdt,dwdt
-    real(rp), intent(inout), dimension( :, :, :), optional :: dudtd,dvdtd,dwdtd
+    real(rp), intent(in   ), dimension(1-nh:,1-nh:,1-nh:) :: u,v,w
+    real(rp), intent(inout), dimension(    :,    :,    :) :: dudt,dvdt,dwdt
+    real(rp), intent(inout), dimension(    :,    :,    :), optional :: dudtd,dvdtd,dwdtd
     integer  :: i,j,k
     real(rp) :: u_ccm,u_pcm,u_cpm,u_cmc,u_pmc,u_mcc,u_ccc,u_pcc,u_mpc,u_cpc,u_cmp,u_mcp,u_ccp, &
                 v_ccm,v_pcm,v_cpm,v_cmc,v_pmc,v_mcc,v_ccc,v_pcc,v_mpc,v_cpc,v_cmp,v_mcp,v_ccp, &

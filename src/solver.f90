@@ -15,7 +15,7 @@ module mod_solver
   private
   public solver,solver_gaussel_z,solver_gaussel_yz
   contains
-  subroutine solver(n,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
+  subroutine solver(n,nh,ng,is_fft,arrplan,normfft,lambdaxy,eigvecx_fwd,eigvecx_bwd,eigvecy_fwd,eigvecy_bwd,a,b,c, &
                     bc,c_or_f,p,is_dtdma_update,aa_z,cc_z,is_cache_aux)
     !
     ! note: some of the transposes below are suboptimal in slab decompositions,
@@ -23,6 +23,7 @@ module mod_solver
     !
     implicit none
     integer , intent(in), dimension(3) :: n,ng
+    integer , intent(in)               :: nh
     logical , intent(in), dimension(2) :: is_fft
     type(C_PTR), intent(in), dimension(2,2) :: arrplan
     real(rp), intent(in) :: normfft
@@ -30,7 +31,7 @@ module mod_solver
     real(rp), intent(in), dimension(:) :: a,b,c
     character(len=1), dimension(0:1,3), intent(in) :: bc
     character(len=1), intent(in), dimension(3) :: c_or_f
-    real(rp), intent(inout), dimension(0:,0:,0:) :: p
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
     logical , intent(inout), optional :: is_dtdma_update
     real(rp), intent(inout), dimension(:,:,:), optional :: aa_z,cc_z
     logical , intent(in   ), optional :: is_cache_aux
@@ -703,14 +704,15 @@ module mod_solver
     end do
   end subroutine dgtsv_homebrewed
   !
-  subroutine solver_gaussel_z(n,ng,hi,a,b,c,bcz,c_or_f,norm,p)
+  subroutine solver_gaussel_z(n,nh,ng,hi,a,b,c,bcz,c_or_f,norm,p)
     implicit none
     integer , intent(in), dimension(3) :: n,ng,hi
+    integer , intent(in)               :: nh
     real(rp), intent(in), dimension(:) :: a,b,c
     character(len=1), dimension(0:1), intent(in) :: bcz
     character(len=1), intent(in), dimension(3) :: c_or_f
     real(rp), intent(in) :: norm
-    real(rp), intent(inout), dimension(0:,0:,0:) :: p
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
     real(rp), allocatable, dimension(:,:,:) :: px,py,pz
     integer :: q
     logical :: is_periodic_z
@@ -745,7 +747,7 @@ module mod_solver
     q = merge(1,0,(c_or_f(3) == 'f').and.(bcz(1) /= 'P').and.(hi_z(3) == ng(3)))
     is_periodic_z = bcz(0)//bcz(1) == 'PP'
     if(is_no_decomp_z) then
-      call gaussel(n(1),n(2),n(3)-q,1,a,b,c,is_periodic_z,norm,p)
+      call gaussel(n(1),n(2),n(3)-q,nh,a,b,c,is_periodic_z,norm,p)
     else if(is_poisson_dtdma) then
       !
       ! the reduced-system descriptor expects Y pencils without halos
@@ -771,9 +773,10 @@ module mod_solver
     end if
   end subroutine solver_gaussel_z
   !
-  subroutine solver_gaussel_yz(n,ng,is_fft,arrplan,normfft,lambday,eigvecy_fwd,eigvecy_bwd,a,b,c,bc,c_or_f,p)
+  subroutine solver_gaussel_yz(n,nh,ng,is_fft,arrplan,normfft,lambday,eigvecy_fwd,eigvecy_bwd,a,b,c,bc,c_or_f,p)
     implicit none
     integer , intent(in), dimension(3) :: n,ng
+    integer , intent(in)               :: nh
     logical , intent(in), dimension(2) :: is_fft
     type(C_PTR), intent(in), dimension(2,2) :: arrplan
     real(rp), intent(in) :: normfft
@@ -782,7 +785,7 @@ module mod_solver
     real(rp), intent(in), dimension(:) :: a,b,c
     character(len=1), dimension(0:1,3), intent(in) :: bc
     character(len=1), intent(in), dimension(3) :: c_or_f
-    real(rp), intent(inout), dimension(0:,0:,0:) :: p
+    real(rp), intent(inout), dimension(1-nh:,1-nh:,1-nh:) :: p
     real(rp), target, allocatable, dimension(:,:,:) :: py,pz
     real(rp), target, allocatable, dimension(:,:,:) :: py_aux_1,py_aux_2
     real(rp), pointer, contiguous, dimension(:,:) :: py_aux_1_2d,py_aux_2_2d

@@ -12,7 +12,7 @@ module mod_utils
   public device_memory_footprint
 #endif
 contains
-  subroutine bulk_mean(n,l,dx,dy,dz,p,mean)
+  subroutine bulk_mean(n,nh,nh_g,l,dx,dy,dz,p,mean)
     !
     ! compute the mean value of an observable over the entire domain
     !
@@ -20,9 +20,10 @@ contains
     use mod_types
     implicit none
     integer , intent(in), dimension(3) :: n
+    integer , intent(in)               :: nh,nh_g
     real(rp), intent(in), dimension(3) :: l
-    real(rp), intent(in), dimension(0:) :: dx,dy,dz
-    real(rp), intent(in), dimension(0:,0:,0:) :: p
+    real(rp), intent(in), dimension(1-nh_g:) :: dx,dy,dz
+    real(rp), intent(in), dimension(1-nh:,1-nh:,1-nh:) :: p
     real(rp), intent(out) :: mean
     integer :: i,j,k
     integer :: ierr
@@ -60,28 +61,28 @@ contains
     arr2 => tmp
   end subroutine swap
 #if defined(_OPENACC)
-  function device_memory_footprint(n,n_z,nscal) result(itotal)
+  function device_memory_footprint(n,nh_v,nh_p,nh_s,nh_g,n_z,nscal) result(itotal)
     !
     ! estimate GPU memory footprint, assuming one MPI task <-> one GPU
     !
     use mod_types, only: i8,rp
     use mod_param, only: impdiff_mode,impdiff_explicit,impdiff_z,impdiff_yz,is_poisson_dtdma
     integer, intent(in), dimension(3) :: n,n_z
+    integer, intent(in)               :: nh_v,nh_p,nh_s,nh_g
     integer, intent(in) :: nscal
-    integer :: nh(3)
     integer(i8) :: itotal,itemp,rp_size
     rp_size = f_sizeof(1._rp)
     itotal = 0
     !
     ! 1. 'main' arrays: u,v,w,p,pp,scalars
     !
-    nh(:) = 1
-    itotal = itotal + product(int(n(:),i8)+2*int(nh(:),i8))*rp_size*(5+nscal)
+    itotal = itotal + product(int(n(:),i8)+2*int(nh_v,i8))*rp_size*3
+    itotal = itotal + product(int(n(:),i8)+2*int(nh_p,i8))*rp_size*2
+    itotal = itotal + product(int(n(:),i8)+2*int(nh_s,i8))*rp_size*nscal
     !
     ! 2. grid arrays (tiny footprint): local coordinates, spacings, and inverse spacings
     !
-    nh(:) = 1
-    itotal = itotal + sum(int(n(:),i8)+2*int(nh(:),i8))*rp_size*6
+    itotal = itotal + sum(int(n(:),i8)+2*int(nh_g,i8))*rp_size*6
     !
     ! 3. solver eigenvalues and Gauss elimination coefficient arrays (small footprint)
     !    rhs?%[x,y,z] arrays, lambdaxy? arrays, and a?,b?,c? arrays

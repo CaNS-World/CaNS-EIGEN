@@ -1,3 +1,8 @@
+BLAS_LAPACK_LIBS := -lblas -llapack
+ifeq ($(strip $(FCOMP)),CRAY)
+BLAS_LAPACK_LIBS := # provided by Cray LibSci through the ftn wrapper
+endif
+
 override LIBS += -L$(LIBS_DIR)/2decomp-fft -ldecomp2d
 override INCS += -I$(LIBS_DIR)/2decomp-fft/mod
 
@@ -15,9 +20,9 @@ override INCS += -I$(LIBS_DIR)/cuDecomp/build/include
 endif
 endif
 ifeq ($(strip $(USE_HIP)),1)
-override LIBS += -lhipfft -lhipblas -lblas -llapack
+override LIBS += -lhipfft -lhipblas $(BLAS_LAPACK_LIBS)
 else
-override LIBS += -cudalib=cufft,cublas -lblas -llapack
+override LIBS += -cudalib=cufft,cublas $(BLAS_LAPACK_LIBS)
 endif
 endif
 
@@ -32,7 +37,7 @@ override LIBS += -lfftw3
 ifeq ($(findstring INTEL,$(strip $(FCOMP))),INTEL)
 override LIBS += -qmkl
 else
-override LIBS += -lblas -llapack
+override LIBS += $(BLAS_LAPACK_LIBS)
 endif
 
 ifeq ($(strip $(OPENMP)),1)

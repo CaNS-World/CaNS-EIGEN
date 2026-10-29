@@ -31,21 +31,7 @@ module mod_solver_gpu
   use mod_fft            , only: fft_gpu,fft_gpu_layout
   use mod_param          , only: ipencil_axis,is_poisson_dtdma, &
                                  is_diezdecomp_x2z_z2x_transposes
-#if !defined(_USE_HIP)
-#if !defined(_SINGLE_PRECISION)
-  use cublas         , only: gemm => cublasDgemm_v2, &
-#else
-  use cublas         , only: gemm => cublasSgemm_v2, &
-#endif
-                             op_n => CUBLAS_OP_N
-#else
-#if !defined(_SINGLE_PRECISION)
-  use hipfort_hipblas, only: gemm => hipblasDgemm_v2, & ! will need fixing, Dgemm_v2 is not in hipfort
-#else
-  use hipfort_hipblas, only: gemm => hipblasSgemm_v2, & ! will need fixing, Dgemm_v2 is not in hipfort
-#endif
-                             op_n => HIPBLAS_OP_N
-#endif
+  use mod_linalg         , only: gemm => gemm_gpu,op_n => gemm_op_n
   use mod_types
   implicit none
   private

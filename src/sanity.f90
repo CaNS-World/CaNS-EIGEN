@@ -287,10 +287,11 @@ module mod_sanity
       do idir=1,3
         if(is_forced(idir)) passed_loc = passed_loc.and..not.any(cbcvel(:,:,idir) == 'N')
       end do
+      passed_loc = passed_loc.and.any(cbcpre(0,:)//cbcpre(1,:) == 'PP')
       passed_loc = passed_loc.and..not.(is_boussinesq_buoyancy.and.any(is_forced(:).and.abs(gacc(:)) > 0.))
       if(myid == 0.and.(.not.passed_loc)) &
-      print*, 'ERROR: `is_bulk_forcing_wall_shear = T` requires no-slip walls for the forced velocity components &
-              &and no gravity along a forced direction with Boussinesq buoyancy.'
+      print*, 'ERROR: `is_bulk_forcing_wall_shear = T` requires no-slip walls for the forced velocity components, &
+              &a periodic direction, and no gravity along a forced direction with Boussinesq buoyancy.'
       passed = passed.and.passed_loc
     end if
   end subroutine chk_forcing

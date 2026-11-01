@@ -581,6 +581,8 @@ module mod_rk
     real(rp) :: factor1,factor2,factor12,alpha
     logical , dimension(3) :: is_w
     integer :: idir,ib
+    f(:) = 0.
+    if(.not.any(is_forced(:))) return ! nothing to force
     !
     ! time-step factors as in `rk`
     !
@@ -601,7 +603,6 @@ module mod_rk
     do idir=1,3
       is_w(idir) = is_w(idir).and.cbcpre(0,idir)//cbcpre(1,idir) /= 'PP'
     end do
-    f(:) = 0.
     if(.not.any(is_w)) then
       do idir=1,3
         if(.not.is_forced(idir)) cycle
@@ -687,8 +688,9 @@ module mod_rk
   subroutine cmpt_unit_response(alpha,n,nh,ng,lo,l,is_w,dxci_g,dxfi_g,dyci_g,dyfi_g,dzci_g,dzfi_g,g,gmean)
     !
     ! response to a uniform unit forcing, (1 + alpha*lap_W) g = 1, with homogeneous Dirichlet conditions
-    ! along the directions W where `is_w` is true (one or two), solved on the global grid; returns the
-    ! local part of g, with extent 1 along the other directions, and its volume average `gmean`
+    ! along the directions W where `is_w` is true (one or two, as a forced direction is periodic), solved
+    ! on the global grid; returns the local part of g, with extent 1 along the other directions, and its
+    ! volume average `gmean`
     !
     ! with two directions, the first is diagonalized (once, as the operator does not depend on alpha)
     ! and a tridiagonal system is solved along the second for each eigenvalue

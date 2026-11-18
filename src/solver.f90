@@ -38,7 +38,7 @@ module mod_solver
     real(rp), target, allocatable, dimension(:,:,:) :: px,py,pz
     real(rp), target, allocatable, dimension(:,:,:) :: px_aux,py_aux_1,py_aux_2
     real(rp), pointer, contiguous, dimension(:,:)   :: px_2d,px_aux_2d,py_aux_1_2d,py_aux_2_2d
-    integer :: q,i,j,k
+    integer :: q
     logical :: is_periodic_z
     logical :: is_mixed(2)
     integer :: idir
@@ -114,24 +114,10 @@ module mod_solver
       call fft(arrplan(1,2),pfft) ! fwd transform in y
       if(is_mixed(2)) call posp_dctviii('F',bc(0,2)//bc(1,2),2,pfft,py)
     else
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py_aux_1(j,k,i) = py(i,j,k)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('F',ysize,py,py_aux_1)
       call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
                 eigvecy_fwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py(i,j,k) = py_aux_2(j,k,i)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('B',ysize,py,py_aux_2)
     end if
     !
     q = merge(1,0,(c_or_f(3) == 'f').and.(bc(1,3) /= 'P').and.(hi_z(3) == ng(3)))
@@ -152,24 +138,10 @@ module mod_solver
       call fft(arrplan(2,2),pfft) ! bwd transform in y
       if(is_mixed(2)) call posp_dctviii('B',bc(0,2)//bc(1,2),2,pfft,py)
     else
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py_aux_1(j,k,i) = py(i,j,k)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('F',ysize,py,py_aux_1)
       call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
                 eigvecy_bwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py(i,j,k) = py_aux_2(j,k,i)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('B',ysize,py,py_aux_2)
     end if
     !
     call transpose_y_to_x(py,px)
@@ -789,7 +761,7 @@ module mod_solver
     real(rp), target, allocatable, dimension(:,:,:) :: py,pz
     real(rp), target, allocatable, dimension(:,:,:) :: py_aux_1,py_aux_2
     real(rp), pointer, contiguous, dimension(:,:) :: py_aux_1_2d,py_aux_2_2d
-    integer :: i,j,k,q
+    integer :: q
     logical :: is_periodic_z
     logical :: is_mixed(2)
     integer :: idir
@@ -824,24 +796,10 @@ module mod_solver
       call fft(arrplan(1,2),pfft)
       if(is_mixed(2)) call posp_dctviii('F',bc(0,2)//bc(1,2),2,pfft,py)
     else
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py_aux_1(j,k,i) = py(i,j,k)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('F',ysize,py,py_aux_1)
       call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
                 eigvecy_fwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py(i,j,k) = py_aux_2(j,k,i)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('B',ysize,py,py_aux_2)
     end if
     !
     q = merge(1,0,c_or_f(3) == 'f'.and.bc(1,3) /= 'P'.and.yend(3) == ng(3))
@@ -854,24 +812,10 @@ module mod_solver
       call fft(arrplan(2,2),pfft)
       if(is_mixed(2)) call posp_dctviii('B',bc(0,2)//bc(1,2),2,pfft,py)
     else
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py_aux_1(j,k,i) = py(i,j,k)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('F',ysize,py,py_aux_1)
       call gemm('N','N',ng(2),ysize(1)*ysize(3),ng(2),1._rp, &
                 eigvecy_bwd,ng(2),py_aux_1_2d,ng(2),0._rp,py_aux_2_2d,ng(2))
-      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared)
-      do k=1,ysize(3)
-        do j=1,ysize(2)
-          do i=1,ysize(1)
-            py(i,j,k) = py_aux_2(j,k,i)
-          end do
-        end do
-      end do
+      call transpose_ijk_jki('B',ysize,py,py_aux_2)
     end if
     !
     select case(ipencil_axis)
@@ -886,6 +830,56 @@ module mod_solver
       !$OMP END PARALLEL WORKSHARE
     end select
   end subroutine solver_gaussel_yz
+  !
+  subroutine transpose_ijk_jki(dir,n,p,p_aux)
+    !
+    ! local transpose between the y-pencil layout p(i,j,k) and the layout p_aux(j,k,i)
+    ! taken by the GEMMs along y:
+    !   dir = 'F': p_aux(j,k,i) = p(i,j,k)
+    !   dir = 'B': p(i,j,k) = p_aux(j,k,i)
+    ! (j,k) is contiguous in both arrays, so this is the transpose of an n(1) x n(2)*n(3) matrix;
+    ! it is cache-blocked along i and along the merged (j,k) index, and the inner loop runs along
+    ! the contiguous index of p_aux in both directions: the leading dimension of p_aux, n(2)*n(3),
+    ! is often a large power of two, and tiles that reuse its cache lines thrash the caches;
+    ! OpenMP runs over all tiles, so that thin pencils (small n(1)) also have enough parallelism;
+    ! the tile extents (32 along i; 64 along (j,k) for thin pencils, n(1) <= 64, and 32 otherwise)
+    ! were chosen with a microbenchmark on AMD EPYC 7H12 (Zen 2), one core and a full node
+    !
+    implicit none
+    character(len=1), intent(in) :: dir
+    integer , intent(in), dimension(3) :: n
+    real(rp), intent(inout), dimension(n(1),n(2)*n(3)) :: p
+    real(rp), intent(inout), dimension(n(2)*n(3),n(1)) :: p_aux
+    integer :: i,m,ii,mm,nm,ti,tm
+    !
+    nm = n(2)*n(3)
+    ti = 32
+    tm = merge(64,32,n(1) <= 64)
+    select case(dir)
+    case('F')
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(i,m)
+      do mm=1,nm,tm
+        do ii=1,n(1),ti
+          do i=ii,min(ii+ti-1,n(1))
+            do m=mm,min(mm+tm-1,nm)
+              p_aux(m,i) = p(i,m)
+            end do
+          end do
+        end do
+      end do
+    case('B')
+      !$OMP PARALLEL DO COLLAPSE(2) DEFAULT(shared) PRIVATE(i,m)
+      do mm=1,nm,tm
+        do ii=1,n(1),ti
+          do i=ii,min(ii+ti-1,n(1))
+            do m=mm,min(mm+tm-1,nm)
+              p(i,m) = p_aux(m,i)
+            end do
+          end do
+        end do
+      end do
+    end select
+  end subroutine transpose_ijk_jki
   !
   subroutine gaussel_yz(nx,ny,n,nh,a,b,c,is_periodic,norm,p,lambday)
     implicit none
